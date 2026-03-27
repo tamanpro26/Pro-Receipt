@@ -1,7 +1,7 @@
 import express    from 'express';
 import cors       from 'cors';
 import nodemailer from 'nodemailer';
-import puppeteer  from 'puppeteer';
+
 import { config } from 'dotenv';
 import path       from 'path';
 import { fileURLToPath } from 'url';
@@ -43,29 +43,20 @@ const THEME_MAP: Record<string, { accent: string; headerBg: string; headerText: 
 };
 
 // ─── Browser launcher ─────────────────────────────────────────────────────────
-// In production (Render) use @sparticuz/chromium — a self-contained binary that
-// works in cloud containers without a separate Chrome install step.
-// In dev, regular puppeteer handles its own Chrome download.
-
-const PUPPETEER_ARGS = [
-  '--no-sandbox',
-  '--disable-setuid-sandbox',
-  '--disable-gpu',
-  '--disable-dev-shm-usage',
-  '--no-zygote',
-  '--font-render-hinting=none',
-];
+// Always use @sparticuz/chromium + puppeteer-core so the same code path runs
+// in both local dev and on Render — no dependency on NODE_ENV being set.
 
 async function launchBrowser() {
-  if (isDev) {
-    return puppeteer.launch({ headless: true, args: PUPPETEER_ARGS });
-  }
-  const chromium      = await import('@sparticuz/chromium');
-  const puppeteerCore = await import('puppeteer-core');
-  return puppeteerCore.default.launch({
+  const chromium      = (await import('@sparticuz/chromium')).default;
+  const puppeteerCore = (await import('puppeteer-core')).default;
+  return puppeteerCore.launch({
     headless:       true,
-    executablePath: await chromium.default.executablePath(),
-    args:           [...chromium.default.args, '--font-render-hinting=none'],
+    executablePath: await chromium.executablePath(),
+    args: [
+      ...chromium.args,
+      '--disable-dev-shm-usage',
+      '--font-render-hinting=none',
+    ],
   });
 }
 
