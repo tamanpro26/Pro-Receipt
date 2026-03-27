@@ -68,6 +68,8 @@ app.post('/api/generate-pdf', async (req, res) => {
         '--no-sandbox',
         '--disable-setuid-sandbox',
         '--disable-gpu',
+        '--disable-dev-shm-usage',   // prevents crashes in containers with small /dev/shm
+        '--no-zygote',
         '--font-render-hinting=none',
       ],
     });

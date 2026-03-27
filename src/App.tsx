@@ -95,7 +95,7 @@ export const THEMES: Record<Exclude<ThemeKey,'custom'>, ThemeDef> = {
 };
 
 const STORAGE_KEY = 'proreceipt_saved';
-const API_URL = (import.meta as any).env?.VITE_API_URL || 'http://localhost:3001';
+const API_URL = (import.meta as any).env?.VITE_API_URL ?? '';
 const EMAIL_RE = /^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$/;
 export const isValidEmail = (s: string) => EMAIL_RE.test(s.trim());
 
