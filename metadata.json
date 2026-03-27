@@ -1,0 +1,5 @@
+{
+  "name": "ProReceipt Maker",
+  "description": "A professional receipt generation tool with live preview and PDF export.",
+  "requestFramePermissions": []
+}
