@@ -42,6 +42,33 @@ const THEME_MAP: Record<string, { accent: string; headerBg: string; headerText: 
   slate:   { accent: '#475569', headerBg: '#F8FAFC', headerText: '#334155' },
 };
 
+// ─── Browser launcher ─────────────────────────────────────────────────────────
+// In production (Render) use @sparticuz/chromium — a self-contained binary that
+// works in cloud containers without a separate Chrome install step.
+// In dev, regular puppeteer handles its own Chrome download.
+
+const PUPPETEER_ARGS = [
+  '--no-sandbox',
+  '--disable-setuid-sandbox',
+  '--disable-gpu',
+  '--disable-dev-shm-usage',
+  '--no-zygote',
+  '--font-render-hinting=none',
+];
+
+async function launchBrowser() {
+  if (isDev) {
+    return puppeteer.launch({ headless: true, args: PUPPETEER_ARGS });
+  }
+  const chromium      = await import('@sparticuz/chromium');
+  const puppeteerCore = await import('puppeteer-core');
+  return puppeteerCore.default.launch({
+    headless:       true,
+    executablePath: await chromium.default.executablePath(),
+    args:           [...chromium.default.args, '--font-render-hinting=none'],
+  });
+}
+
 // ─── POST /api/generate-pdf ───────────────────────────────────────────────────
 // Uses headless Chrome (Puppeteer) so the PDF is rendered by the same engine
 // as the browser preview — pixel-perfect, correct fonts, correct colours.
@@ -62,17 +89,7 @@ app.post('/api/generate-pdf', async (req, res) => {
 
   let browser;
   try {
-    browser = await puppeteer.launch({
-      headless: true,
-      args: [
-        '--no-sandbox',
-        '--disable-setuid-sandbox',
-        '--disable-gpu',
-        '--disable-dev-shm-usage',   // prevents crashes in containers with small /dev/shm
-        '--no-zygote',
-        '--font-render-hinting=none',
-      ],
-    });
+    browser = await launchBrowser();
 
     const page = await browser.newPage();
 
