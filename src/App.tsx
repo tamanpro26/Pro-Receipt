@@ -146,7 +146,8 @@ export default function App() {
 
   // syncKey bumps when a receipt is loaded externally so each card can
   // re-initialise its local state without remounting (VS Code: lazy re-indexing).
-  const [syncKey, setSyncKey] = useState(0);
+  const [syncKey, setSyncKey]         = useState(0);
+  const [mobileTab, setMobileTab]     = useState<'editor' | 'preview'>('editor');
 
   // useDeferredValue decouples preview renders from editor renders:
   // inputs update at high priority; preview repaints at lower priority.
@@ -256,7 +257,7 @@ export default function App() {
   // ─────────────────────────────────────────────────────────────────────────────
 
   return (
-    <div className="h-screen flex flex-col overflow-hidden bg-[#F5F5F5] text-[#1A1A1A] font-sans">
+    <div className="min-h-screen flex flex-col bg-[#F5F5F5] text-[#1A1A1A] font-sans lg:h-screen lg:overflow-hidden">
 
       {/* Toast */}
       <AnimatePresence>
@@ -273,44 +274,61 @@ export default function App() {
       </AnimatePresence>
 
       {/* Header */}
-      <header className="shrink-0 z-50 bg-white/90 backdrop-blur-md border-b border-black/5 px-6 py-4 flex justify-between items-center no-print">
+      <header className="shrink-0 z-50 bg-white/90 backdrop-blur-md border-b border-black/5 px-4 sm:px-6 py-3 sm:py-4 flex justify-between items-center no-print">
         <div className="flex items-center gap-2">
-          <div className="w-8 h-8 bg-[#1A1A1A] rounded-lg flex items-center justify-center">
+          <div className="w-8 h-8 bg-[#1A1A1A] rounded-lg flex items-center justify-center shrink-0">
             <Receipt className="text-white w-5 h-5" />
           </div>
-          <h1 className="text-lg font-semibold tracking-tight">ProReceipt</h1>
+          <h1 className="text-base sm:text-lg font-semibold tracking-tight">ProReceipt</h1>
         </div>
-        <div className="flex items-center gap-2 flex-wrap justify-end">
+        <div className="flex items-center gap-1.5 sm:gap-2">
           <button onClick={() => setShowLoadModal(true)} className={btnOutline}>
-            <FolderOpen className="w-4 h-4" /> Load
+            <FolderOpen className="w-4 h-4" /> <span className="hidden sm:inline">Load</span>
           </button>
           <button onClick={() => { setSaveName(`${data.businessName} – ${data.receiptNumber}`); setShowSaveModal(true); }} className={btnOutline}>
-            <Save className="w-4 h-4" /> Save
+            <Save className="w-4 h-4" /> <span className="hidden sm:inline">Save</span>
           </button>
           <button onClick={() => window.print()} className={btnOutline}>
-            <Printer className="w-4 h-4" /> Print
+            <Printer className="w-4 h-4" /> <span className="hidden sm:inline">Print</span>
           </button>
           <button onClick={handleSendEmail} disabled={isSending}
             className={`${btnOutline} disabled:opacity-50 disabled:cursor-not-allowed`}>
             {isSending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Mail className="w-4 h-4" />}
-            {isSending ? 'Sending…' : 'Email'}
+            <span className="hidden sm:inline">{isSending ? 'Sending…' : 'Email'}</span>
           </button>
           <button onClick={handleDownloadPDF} disabled={isGenerating}
-            className="flex items-center gap-2 bg-[#1A1A1A] text-white px-4 py-2 rounded-full text-sm font-medium hover:bg-black transition-all disabled:opacity-50 disabled:cursor-not-allowed">
+            className="flex items-center gap-1.5 sm:gap-2 bg-[#1A1A1A] text-white px-3 sm:px-4 py-2 rounded-full text-sm font-medium hover:bg-black transition-all disabled:opacity-50 disabled:cursor-not-allowed">
             {isGenerating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
-            {isGenerating ? 'Generating…' : 'Download PDF'}
+            <span className="hidden sm:inline">{isGenerating ? 'Generating…' : 'Download PDF'}</span>
           </button>
         </div>
       </header>
 
+      {/* Mobile tab switcher — only visible below lg breakpoint */}
+      <div className="lg:hidden shrink-0 flex bg-white border-b border-black/5 no-print">
+        <button
+          onClick={() => setMobileTab('editor')}
+          className={`flex-1 py-2.5 text-sm font-medium transition-colors ${mobileTab === 'editor' ? 'text-black border-b-2 border-black' : 'text-gray-400'}`}
+        >
+          Editor
+        </button>
+        <button
+          onClick={() => setMobileTab('preview')}
+          className={`flex-1 py-2.5 text-sm font-medium transition-colors ${mobileTab === 'preview' ? 'text-black border-b-2 border-black' : 'text-gray-400'}`}
+        >
+          Preview
+        </button>
+      </div>
+
       {/* Two-panel layout */}
-      <div className="flex-1 overflow-hidden">
-        <div className="h-full max-w-7xl mx-auto px-6 py-6 grid grid-cols-1 lg:grid-cols-2 gap-8">
+      <div className="flex-1 lg:overflow-hidden">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 py-4 sm:py-6 grid grid-cols-1 lg:grid-cols-2 gap-6 lg:h-full">
 
           {/* ── Editor column ── */}
-          {/* Each card is its own isolated React.memo component — typing in one   */}
-          {/* never causes any other card to re-render (VS Code: file exclusion).  */}
-          <section className="overflow-y-auto h-full pb-10 pr-1 space-y-5 no-print" style={{ willChange: 'transform' }}>
+          <section
+            className={`space-y-4 pb-8 pr-1 no-print lg:overflow-y-auto lg:h-full lg:pb-10 lg:space-y-5 ${mobileTab === 'editor' ? 'block' : 'hidden'} lg:block`}
+            style={{ willChange: 'transform' }}
+          >
             <BusinessDetailsCard onUpdate={update} syncKey={syncKey} initial={INITIAL_DATA} />
             <ReceiptInfoCard     onUpdate={update} syncKey={syncKey} initial={INITIAL_DATA} />
             <CustomerInfoCard   onUpdate={update} syncKey={syncKey} initial={INITIAL_DATA} />
@@ -322,8 +340,9 @@ export default function App() {
           </section>
 
           {/* ── Preview column ── */}
-          {/* Driven by useDeferredValue(data) so it never blocks the editor.      */}
-          <ReceiptPreview data={previewData} receiptRef={receiptRef} />
+          <div className={`${mobileTab === 'preview' ? 'block' : 'hidden'} lg:block lg:h-full`}>
+            <ReceiptPreview data={previewData} receiptRef={receiptRef} />
+          </div>
 
         </div>
       </div>
@@ -638,27 +657,27 @@ const ItemsCard = memo(function ItemsCard({ onUpdate, syncKey, initial }: CardPr
             className="bg-gray-50 p-4 rounded-xl space-y-3 mb-3"
           >
             <div className="grid grid-cols-12 gap-3 items-end">
-              <div className="col-span-6 space-y-1">
+              <div className="col-span-12 sm:col-span-6 space-y-1">
                 <label className="text-[10px] font-bold text-gray-400 uppercase">Description</label>
                 <input type="text" value={item.description}
                   onChange={e => updateItem(item.id, 'description', e.target.value)}
                   className="w-full px-3 py-1.5 bg-white border border-black/5 rounded-lg focus:border-black/20 outline-none text-sm" placeholder="Item name…" />
               </div>
-              <div className="col-span-2 space-y-1">
+              <div className="col-span-4 sm:col-span-2 space-y-1">
                 <label className="text-[10px] font-bold text-gray-400 uppercase">Qty</label>
                 <input type="number" value={item.quantity}
                   onChange={e => updateItem(item.id, 'quantity', parseInt(e.target.value) || 0)}
                   onFocus={e => e.target.select()}
                   className="w-full px-3 py-1.5 bg-white border border-black/5 rounded-lg focus:border-black/20 outline-none text-sm" />
               </div>
-              <div className="col-span-2 space-y-1">
+              <div className="col-span-4 sm:col-span-2 space-y-1">
                 <label className="text-[10px] font-bold text-gray-400 uppercase">Price</label>
                 <input type="number" value={item.price}
                   onChange={e => updateItem(item.id, 'price', parseFloat(e.target.value) || 0)}
                   onFocus={e => e.target.select()}
                   className="w-full px-3 py-1.5 bg-white border border-black/5 rounded-lg focus:border-black/20 outline-none text-sm" />
               </div>
-              <div className="col-span-2 space-y-1">
+              <div className="col-span-4 sm:col-span-2 space-y-1">
                 <label className="text-[10px] font-bold text-gray-400 uppercase">Disc %</label>
                 <input type="number" min="0" max="100" value={item.discount}
                   onChange={e => updateItem(item.id, 'discount', parseFloat(e.target.value) || 0)}
@@ -794,15 +813,15 @@ const ReceiptPreview = memo(function ReceiptPreview({
   const bodyText = theme.headerText === '#ffffff' ? '#cbd5e1' : '#666';
 
   return (
-    <section className="overflow-y-auto h-full pb-10 no-print" style={{ willChange: 'transform' }}>
+    <section className="pb-8 lg:overflow-y-auto lg:h-full lg:pb-10 no-print" style={{ willChange: 'transform' }}>
       <div className="flex items-center gap-2 mb-4 px-2">
         <Eye className="w-4 h-4 text-gray-400" />
         <h2 className="text-sm font-semibold uppercase tracking-wider text-gray-400">Live Preview</h2>
       </div>
 
-      <div className="bg-white shadow-2xl rounded-sm mx-auto overflow-hidden" style={{ width: '600px' }}>
+      <div className="bg-white shadow-2xl rounded-sm mx-auto overflow-hidden w-full max-w-150">
         <div id="receipt-to-capture" ref={receiptRef}
-          className="p-12 w-150 flex flex-col relative bg-white"
+          className="p-6 sm:p-12 w-full flex flex-col relative bg-white"
           style={{ fontFamily: '"JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace', color: '#1a1a1a' }}
         >
           <div className="absolute top-0 left-0 w-full h-1.5" style={{ backgroundColor: theme.accent }} />
