@@ -321,7 +321,7 @@ export default function App() {
       </div>
 
       {/* Two-panel layout */}
-      <div className="flex-1 lg:overflow-hidden">
+      <div className="lg:flex-1 lg:min-h-0 lg:overflow-hidden">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 py-4 sm:py-6 grid grid-cols-1 lg:grid-cols-2 gap-6 lg:h-full">
 
           {/* ── Editor column ── */}
@@ -340,7 +340,7 @@ export default function App() {
           </section>
 
           {/* ── Preview column ── */}
-          <div className={`${mobileTab === 'preview' ? 'block' : 'hidden'} lg:block lg:h-full`}>
+          <div className={`${mobileTab === 'preview' ? 'block' : 'hidden'} lg:block lg:h-full lg:min-h-0`}>
             <ReceiptPreview data={previewData} receiptRef={receiptRef} />
           </div>
 
