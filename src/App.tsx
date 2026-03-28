@@ -848,7 +848,7 @@ const ReceiptPreview = memo(function ReceiptPreview({
             </span>
           </div>
 
-          <div className="grid grid-cols-2 gap-8 mb-8 py-6"
+          <div className="grid grid-cols-2 gap-4 sm:gap-8 mb-4 sm:mb-8 py-4 sm:py-6"
             style={{ borderTop: `1px solid ${theme.accent}`, borderBottom: `1px solid ${theme.accent}` }}>
             <div>
               <p className="text-[10px] uppercase font-bold text-[#999] mb-1">Billed To</p>
@@ -866,29 +866,29 @@ const ReceiptPreview = memo(function ReceiptPreview({
           </div>
 
           <div className="grow">
-            <table className="w-full text-sm border-collapse">
+            <table className="w-full text-xs sm:text-sm border-collapse">
               <thead>
                 <tr style={{ borderBottom: `2px solid ${theme.accent}` }}>
-                  <th className="py-2 text-left   font-bold uppercase tracking-wider text-xs">Description</th>
-                  <th className="py-2 text-center font-bold uppercase tracking-wider text-xs">Qty</th>
-                  <th className="py-2 text-right  font-bold uppercase tracking-wider text-xs">Price</th>
-                  <th className="py-2 text-right  font-bold uppercase tracking-wider text-xs">Total</th>
+                  <th className="py-1.5 sm:py-2 text-left   font-bold uppercase tracking-wider text-[10px] sm:text-xs">Description</th>
+                  <th className="py-1.5 sm:py-2 text-center font-bold uppercase tracking-wider text-[10px] sm:text-xs">Qty</th>
+                  <th className="py-1.5 sm:py-2 text-right  font-bold uppercase tracking-wider text-[10px] sm:text-xs">Price</th>
+                  <th className="py-1.5 sm:py-2 text-right  font-bold uppercase tracking-wider text-[10px] sm:text-xs">Total</th>
                 </tr>
               </thead>
               <tbody>
                 {data.items.map(item => (
                   <tr key={item.id} style={{ borderBottom: '1px solid #eee' }}>
-                    <td className="py-3">
+                    <td className="py-1.5 sm:py-3">
                       {item.description || 'Untitled Item'}
                       {item.discount > 0 && (
-                        <span className="ml-2 text-[10px] bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded-full">
+                        <span className="ml-1 sm:ml-2 text-[10px] bg-emerald-100 text-emerald-700 px-1 sm:px-1.5 py-0.5 rounded-full">
                           {item.discount}% off
                         </span>
                       )}
                     </td>
-                    <td className="py-3 text-center">{item.quantity}</td>
-                    <td className="py-3 text-right">{fmt(item.price)}</td>
-                    <td className="py-3 text-right font-bold">{fmt(itemTotal(item))}</td>
+                    <td className="py-1.5 sm:py-3 text-center">{item.quantity}</td>
+                    <td className="py-1.5 sm:py-3 text-right">{fmt(item.price)}</td>
+                    <td className="py-1.5 sm:py-3 text-right font-bold">{fmt(itemTotal(item))}</td>
                   </tr>
                 ))}
               </tbody>
@@ -897,7 +897,7 @@ const ReceiptPreview = memo(function ReceiptPreview({
 
           <div className="mt-6 pt-6" style={{ borderTop: `2px solid ${theme.accent}` }}>
             <div className="flex justify-end mb-6">
-              <div className="w-56 space-y-2">
+              <div className="w-full sm:w-56 space-y-2">
                 <div className="flex justify-between text-sm">
                   <span className="text-[#999] uppercase text-xs">Subtotal</span>
                   <span>{fmt(subtotal)}</span>
@@ -914,7 +914,7 @@ const ReceiptPreview = memo(function ReceiptPreview({
                 </div>
                 <div className="flex justify-between pt-2 mt-1" style={{ borderTop: `1px solid ${theme.accent}` }}>
                   <span className="font-bold uppercase text-sm">Total</span>
-                  <span className="font-bold text-lg">{fmt(total)}</span>
+                  <span className="font-bold text-base sm:text-lg">{fmt(total)}</span>
                 </div>
               </div>
             </div>
