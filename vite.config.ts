@@ -5,7 +5,7 @@ import path from 'path';
 import { defineConfig } from 'vite';
 
 // Load .env.example so API keys are available at build/dev time
-config({ path: '.env.example' });
+config({ path: '.env' });
 
 export default defineConfig(() => ({
   plugins: [react(), tailwindcss()],

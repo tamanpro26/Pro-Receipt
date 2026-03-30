@@ -9,7 +9,7 @@ import fs         from 'fs';
 import { fileURLToPath } from 'url';
 import crypto     from 'crypto';
 
-config({ path: '.env.example' });
+config({ path: '.env' });
 
 // Clerk Express middleware needs CLERK_PUBLISHABLE_KEY (no VITE_ prefix).
 // Map it automatically if only the VITE_ variant was provided.
