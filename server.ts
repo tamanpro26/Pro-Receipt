@@ -216,66 +216,60 @@ app.post('/api/send-receipt', async (req, res) => {
 });
 
 // ─── POST /api/ai-chat ──────────────────────────────────────────────────────
-// Multi-turn conversation with Gemini 2.0 Flash to build receipts from natural
-// language. Returns { reply: string, receiptData?: object }.
+// Multi-turn conversation with GPT-4o mini to design HTML receipts.
+// The OPENAI_API_KEY is read from process.env at request time — never baked
+// into the frontend bundle.
 
 function getAiSystemPrompt(): string {
   const today = new Date().toISOString().split('T')[0];
-  return `You are ProReceipt AI, a friendly and concise assistant that creates professional receipts through conversation.
+  return `You are ProReceipt AI Studio, a friendly and creative receipt designer assistant.
 
-WORKFLOW:
-1. GATHER INFO: Ask about business details, items/services, customer info, and payment. Ask 2-3 questions at a time, not everything at once.
-2. DESIGN PREFERENCES: Ask about theme, currency, paper size.
-3. GENERATE: When you have enough info, output a COMPLETE receipt as JSON.
+CONVERSATION RULES:
+- You are a conversational assistant FIRST. Respond naturally to greetings, questions, and casual messages.
+- Only generate a receipt when the user clearly intends to create or modify one (e.g., mentions a business, items, prices, or explicitly asks for a receipt).
+- If the user says something like "hello", "how are you", "what can you do", or anything NOT related to receipt creation, just reply conversationally — do NOT generate any HTML.
+- When unsure if the user wants a receipt, ask a clarifying question instead of generating one.
 
-For follow-up edits, modify the full receipt and output the COMPLETE updated JSON.
+WHEN TO GENERATE A RECEIPT:
+- The user mentions a business name, items/services, prices, or says "create a receipt", "make me a receipt", etc.
+- The user provides enough context that clearly implies they want a receipt (e.g., "I sold 3 laptops to John for $500 each").
+- The user asks to modify an existing receipt (only if one was already generated in the conversation).
+- If the user gives partial info (e.g., just a business name), you may ask 1-2 quick questions OR generate with sensible defaults.
 
-RULES:
-- Be concise, warm, and professional
-- When you have enough info to generate (even partially — fill in sensible defaults), do so
-- ALWAYS wrap JSON output in a \`\`\`json code block
-- Output the COMPLETE receipt JSON every time (all fields), not partial updates
-- Generate item IDs as "item-1", "item-2", etc.
+RULES FOR HTML OUTPUT (only when generating a receipt):
+- Output a COMPLETE HTML document (<!DOCTYPE html> to </html>)
+- ALWAYS wrap the HTML in a \`\`\`html code block
+- Include ALL styles inline or in a <style> tag — NO external CSS files
+- You may use Google Fonts via <link> tags
+- Design must be CREATIVE and UNIQUE — vary layouts, color schemes, typography, and decorative elements
+- The receipt should look like a real, beautifully designed document
+- Make it print-friendly (max-width ~800px, centered)
+- Include all receipt details: business info, items table, totals, tax, payment info, dates
+- Calculate totals, tax, and discounts correctly
+- Fill in missing details with realistic examples when generating
 - Today's date: ${today}
 
-AVAILABLE OPTIONS:
-Themes: classic, indigo, bold, forest, sunset, ocean, rose, slate
-Currencies: $ (USD), € (EUR), £ (GBP), ¥ (JPY), ₹ (INR), ₩ (KRW), A$ (AUD), C$ (CAD), Fr (CHF), R$ (BRL), ₺ (TRY)
-Paper sizes: A4, Letter, A5, Legal
-Payment methods: Cash, Credit Card, Debit Card, Bank Transfer, PayPal, Stripe, Check, Crypto, Other
-Payment status: paid, unpaid, partial
+DESIGN GUIDELINES — CRITICAL, follow these strictly:
+- NEVER produce a plain white page with a basic table. Every receipt must feel professionally designed.
+- Give each receipt a STRONG visual identity: think branded hotel bill, trendy café receipt, luxury invoice, retro shop ticket, modern SaaS billing page, etc.
+- Layout: go beyond a simple top-to-bottom list. Use header banners, two-column sections, sidebar accent strips, colored footers, full-bleed background sections, or decorative dividers.
+- Color: pick a bold, deliberate palette — deep jewel tones, warm earth tones, cool monochromes, vibrant neons on dark, pastel with strong accent. Never default to plain black on white.
+- Typography: use Google Fonts. Mix a display/serif font for the business name or total with a clean sans-serif for body text. Use large, dramatic numbers for the grand total.
+- Details: watermark-style logo placeholder, CSS-drawn stamp or seal, subtle background texture or pattern, colored row stripes in the items table.
+- CSS techniques: gradients (linear/radial), box-shadow, border-radius, ::before/::after pseudo-elements for decorative shapes, mix of padding/spacing for breathing room.
 
-JSON SCHEMA (use EXACTLY these field names and types):
-{
-  "businessName": "string",
-  "businessAddress": "string",
-  "businessPhone": "string",
-  "businessEmail": "string",
-  "businessWebsite": "string",
-  "receiptNumber": "string (e.g. REC-2024-001)",
-  "date": "YYYY-MM-DD",
-  "dueDate": "YYYY-MM-DD or empty string",
-  "customerName": "string",
-  "customerEmail": "string",
-  "customerPhone": "string",
-  "items": [{"id": "string", "description": "string", "quantity": number, "price": number, "discount": number}],
-  "taxRate": number,
-  "globalDiscount": number,
-  "currency": "symbol string like $ or \\u20b9",
-  "paymentMethod": "string",
-  "paymentStatus": "paid or unpaid or partial",
-  "notes": "string",
-  "theme": "string from available themes",
-  "paperSize": "string from available sizes"
-}`;
+IMPORTANT:
+- Do NOT include a \`\`\`html code block unless you are actually generating/updating a receipt
+- For follow-up edits, output the COMPLETE updated HTML receipt
+- Be concise and friendly in all responses`;
 }
 
 app.post('/api/ai-chat', async (req, res) => {
   const { messages } = req.body ?? {};
 
-  const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
-  if (!GEMINI_API_KEY) {
-    res.status(503).json({ error: 'AI not configured. Set GEMINI_API_KEY in your environment variables.' });
+  const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
+  if (!OPENAI_API_KEY) {
+    res.status(503).json({ error: 'AI not configured. Set OPENAI_API_KEY in your environment variables.' });
     return;
   }
   if (!Array.isArray(messages) || messages.length === 0) {
@@ -284,32 +278,32 @@ app.post('/api/ai-chat', async (req, res) => {
   }
 
   try {
-    const { GoogleGenAI } = await import('@google/genai');
-    const ai = new GoogleGenAI({ apiKey: GEMINI_API_KEY });
-
-    const contents = messages.map((m: { role: string; content: string }) => ({
-      role: m.role === 'user' ? 'user' as const : 'model' as const,
-      parts: [{ text: m.content }],
-    }));
-
-    const response = await ai.models.generateContent({
-      model: 'gemini-2.0-flash',
-      contents,
-      config: { systemInstruction: getAiSystemPrompt() },
+    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${OPENAI_API_KEY}`,
+      },
+      body: JSON.stringify({
+        model: 'gpt-5.4-mini',
+        temperature: 1.2,
+        messages: [
+          { role: 'system', content: getAiSystemPrompt() },
+          ...messages.map((m: { role: string; content: string }) => ({
+            role: m.role === 'user' ? 'user' : 'assistant',
+            content: m.content,
+          })),
+        ],
+      }),
     });
 
-    const reply = response.text ?? '';
+    const data = await response.json() as any;
+    if (!response.ok) throw new Error(data.error?.message ?? `OpenAI error ${response.status}`);
 
-    // Extract JSON receipt data if present
-    let receiptData = null;
-    const jsonMatch = reply.match(/```json\s*([\s\S]*?)```/);
-    if (jsonMatch) {
-      try { receiptData = JSON.parse(jsonMatch[1]); } catch { /* ignore bad JSON */ }
-    }
-
-    res.json({ reply, receiptData });
+    const reply: string = data.choices?.[0]?.message?.content ?? '';
+    res.json({ reply });
   } catch (err: any) {
-    console.error('[ai error]', err.message);
+    console.error('[ai-chat error]', err.message);
     res.status(500).json({ error: `AI generation failed: ${err.message}` });
   }
 });

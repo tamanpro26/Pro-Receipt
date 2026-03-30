@@ -9,10 +9,6 @@ config({ path: '.env.example' });
 
 export default defineConfig(() => ({
   plugins: [react(), tailwindcss()],
-  define: {
-    // Bake the OpenAI key into the frontend bundle (safe for personal/demo use)
-    'process.env.OPENAI_API_KEY': JSON.stringify(process.env.OPENAI_API_KEY ?? ''),
-  },
   resolve: {
     alias: { '@': path.resolve(__dirname, '.') },
   },

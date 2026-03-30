@@ -1085,45 +1085,6 @@ const AI_LOADING_MSGS = [
   'Just a moment more...',
 ];
 
-const AI_STUDIO_PROMPT = `You are ProReceipt AI Studio, a friendly and creative receipt designer assistant.
-
-CONVERSATION RULES:
-- You are a conversational assistant FIRST. Respond naturally to greetings, questions, and casual messages.
-- Only generate a receipt when the user clearly intends to create or modify one (e.g., mentions a business, items, prices, or explicitly asks for a receipt).
-- If the user says something like "hello", "how are you", "what can you do", or anything NOT related to receipt creation, just reply conversationally — do NOT generate any HTML.
-- When unsure if the user wants a receipt, ask a clarifying question instead of generating one.
-
-WHEN TO GENERATE A RECEIPT:
-- The user mentions a business name, items/services, prices, or says "create a receipt", "make me a receipt", etc.
-- The user provides enough context that clearly implies they want a receipt (e.g., "I sold 3 laptops to John for $500 each").
-- The user asks to modify an existing receipt (only if one was already generated in the conversation).
-- If the user gives partial info (e.g., just a business name), you may ask 1-2 quick questions OR generate with sensible defaults — use your judgment based on how much info they gave.
-
-RULES FOR HTML OUTPUT (only when generating a receipt):
-- Output a COMPLETE HTML document (<!DOCTYPE html> to </html>)
-- ALWAYS wrap the HTML in a \`\`\`html code block
-- Include ALL styles inline or in a <style> tag — NO external CSS files
-- You may use Google Fonts via <link> tags
-- Design must be CREATIVE and UNIQUE — vary layouts, color schemes, typography, and decorative elements
-- The receipt should look like a real, beautifully designed document
-- Make it print-friendly (max-width ~800px, centered)
-- Include all receipt details: business info, items table, totals, tax, payment info, dates
-- Calculate totals, tax, and discounts correctly
-- Fill in missing details with realistic examples when generating
-- Today's date: ${new Date().toISOString().split('T')[0]}
-
-DESIGN GUIDELINES:
-- Each receipt should have a distinct visual identity
-- Use creative color palettes, gradients, borders, shadows
-- Vary between minimal, bold, elegant, modern, vintage, corporate styles
-- Add subtle decorative elements (dividers, icons via CSS, patterns)
-- Ensure text is readable and layout is clean despite creative styling
-
-IMPORTANT:
-- Do NOT include a \`\`\`html code block unless you are actually generating/updating a receipt
-- For follow-up edits, output the COMPLETE updated HTML receipt
-- Be concise and friendly in all responses`;
-
 
 function AIStudio({ receiptHtml, setReceiptHtml, messages, setMessages, currentChatId, setCurrentChatId, dark, showToast }: {
   receiptHtml: string;
@@ -1247,6 +1208,43 @@ function AIStudio({ receiptHtml, setReceiptHtml, messages, setMessages, currentC
     }
   };
 
+  // ── Sync chats from server when signed in (so chats load on any device) ──
+  useEffect(() => {
+    if (!auth.isSignedIn) return;
+    (async () => {
+      const token = await auth.getToken().catch(() => null);
+      if (!token) return;
+      const res = await fetch(`${API_URL}/api/chats`, {
+        headers: { Authorization: `Bearer ${token}` },
+      }).catch(() => null);
+      if (!res?.ok) return;
+      const summaries: Array<{ id: string; title: string; updated_at: string }> = await res.json().catch(() => []);
+      if (summaries.length === 0) return;
+      const localChats = readLocalChats();
+      const localIds = new Set(localChats.map(c => c.id));
+      const missing = summaries.filter(s => !localIds.has(s.id));
+      if (missing.length === 0) return;
+      // Fetch full data for chats not in localStorage, in parallel
+      const fetched = (await Promise.all(
+        missing.map(s =>
+          fetch(`${API_URL}/api/chats/${s.id}`, { headers: { Authorization: `Bearer ${token}` } })
+            .then(r => r.ok ? r.json() : null)
+            .catch(() => null)
+        )
+      )).filter(Boolean).map((c: any): ChatEntry => ({
+        id: c.id,
+        title: c.title,
+        messages: c.messages,
+        receiptHtml: c.receipt_html ?? '',
+        updatedAt: new Date(c.updated_at).getTime(),
+      }));
+      if (fetched.length === 0) return;
+      const merged = [...fetched, ...localChats].sort((a, b) => b.updatedAt - a.updatedAt);
+      localStorage.setItem(LOCAL_CHATS_KEY, JSON.stringify(merged));
+      setChats(merged);
+    })();
+  }, [auth.isSignedIn]);
+
   // ── Auto-scroll ──
   useEffect(() => { scrollRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages, isLoading]);
 
@@ -1275,30 +1273,20 @@ function AIStudio({ receiptHtml, setReceiptHtml, messages, setMessages, currentC
     })();
 
     try {
-      const apiKey = (process.env as any).OPENAI_API_KEY;
-      if (!apiKey) throw new Error('OPENAI_API_KEY is not set. Add it to .env.example and restart the dev server.');
-
-      const res = await fetch('https://api.openai.com/v1/chat/completions', {
+      const res = await fetch(`${API_URL}/api/ai-chat`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${apiKey}`,
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          model: 'gpt-4o-mini',
-          messages: [
-            { role: 'system', content: AI_STUDIO_PROMPT },
-            ...next.slice(1).map(m => ({
-              role: m.role === 'user' ? 'user' : 'assistant',
-              content: m.content,
-            })),
-          ],
+          messages: next.slice(1).map(m => ({
+            role: m.role === 'user' ? 'user' : 'assistant',
+            content: m.content,
+          })),
         }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error?.message ?? `API error ${res.status}`);
+      if (!res.ok) throw new Error(data.error ?? `API error ${res.status}`);
 
-      const fullReply: string = data.choices?.[0]?.message?.content ?? '';
+      const fullReply: string = data.reply ?? '';
       let newHtml = receiptHtml;
       const htmlMatch = fullReply.match(/```html\s*([\s\S]*?)```/);
       if (htmlMatch) {
