@@ -1,12 +1,20 @@
 import express    from 'express';
 import cors       from 'cors';
 import nodemailer from 'nodemailer';
+import Database   from 'better-sqlite3';
 
 import { config } from 'dotenv';
 import path       from 'path';
 import { fileURLToPath } from 'url';
+import crypto     from 'crypto';
 
-config({ path: '.env.local' });
+config({ path: '.env.example' });
+
+// Clerk Express middleware needs CLERK_PUBLISHABLE_KEY (no VITE_ prefix).
+// Map it automatically if only the VITE_ variant was provided.
+if (!process.env.CLERK_PUBLISHABLE_KEY && process.env.VITE_CLERK_PUBLISHABLE_KEY) {
+  process.env.CLERK_PUBLISHABLE_KEY = process.env.VITE_CLERK_PUBLISHABLE_KEY;
+}
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DIST = path.join(__dirname, 'dist');
@@ -23,6 +31,47 @@ app.use(cors({
 }));
 
 app.use(express.json({ limit: '5mb' }));
+
+// ─── Clerk auth (optional) ──────────────────────────────────────────────────
+
+let clerkEnabled = false;
+if (process.env.CLERK_SECRET_KEY) {
+  try {
+    const { clerkMiddleware } = await import('@clerk/express');
+    app.use(clerkMiddleware());
+    clerkEnabled = true;
+    console.log('[clerk] Auth middleware enabled');
+  } catch (err: any) {
+    console.warn('[clerk] Failed to load @clerk/express:', err.message);
+  }
+}
+
+async function getUserId(req: express.Request): Promise<string | null> {
+  if (!clerkEnabled) return null;
+  try {
+    const { getAuth } = await import('@clerk/express');
+    const { userId } = getAuth(req);
+    return userId;
+  } catch { return null; }
+}
+
+// ─── Database (SQLite) ──────────────────────────────────────────────────────
+
+const db = new Database(path.join(__dirname, 'data', 'proreceipt.db'));
+db.pragma('journal_mode = WAL');
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS chats (
+    id          TEXT PRIMARY KEY,
+    user_id     TEXT NOT NULL,
+    title       TEXT NOT NULL DEFAULT 'New Chat',
+    messages    TEXT NOT NULL DEFAULT '[]',
+    receipt_html TEXT DEFAULT '',
+    created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE INDEX IF NOT EXISTS idx_chats_user ON chats(user_id);
+`);
 
 // ─── Email validation ─────────────────────────────────────────────────────────
 
@@ -43,20 +92,32 @@ const THEME_MAP: Record<string, { accent: string; headerBg: string; headerText: 
 };
 
 // ─── Browser launcher ─────────────────────────────────────────────────────────
-// Always use @sparticuz/chromium + puppeteer-core so the same code path runs
-// in both local dev and on Render — no dependency on NODE_ENV being set.
+// Dev:  use the Chromium bundled with `puppeteer` (works on Windows/Mac/Linux).
+// Prod: use @sparticuz/chromium + puppeteer-core (works on Render/Lambda where
+//       a full Chromium install is not available).
+
+const BROWSER_ARGS = [
+  '--no-sandbox',
+  '--disable-setuid-sandbox',
+  '--disable-dev-shm-usage',
+  '--disable-gpu',
+  '--font-render-hinting=none',
+];
 
 async function launchBrowser() {
+  if (isDev) {
+    // Regular puppeteer ships its own Chromium — no extra setup needed locally
+    const puppeteer = (await import('puppeteer')).default;
+    return puppeteer.launch({ headless: true, args: BROWSER_ARGS });
+  }
+
+  // Production / serverless: use the stripped-down Sparticuz Chromium build
   const chromium      = (await import('@sparticuz/chromium')).default;
   const puppeteerCore = (await import('puppeteer-core')).default;
   return puppeteerCore.launch({
     headless:       true,
     executablePath: await chromium.executablePath(),
-    args: [
-      ...chromium.args,
-      '--disable-dev-shm-usage',
-      '--font-render-hinting=none',
-    ],
+    args:           [...chromium.args, ...BROWSER_ARGS],
   });
 }
 
@@ -73,10 +134,14 @@ const PAPER_VIEWPORTS: Record<string, { width: number; height: number }> = {
 };
 
 app.post('/api/generate-pdf', async (req, res) => {
-  const { receiptData: d, paperSize = 'A4' } = req.body ?? {};
-  if (!d) { res.status(400).json({ error: 'Receipt data is required.' }); return; }
+  const { receiptData: d, paperSize = 'A4', html: rawHtml } = req.body ?? {};
+
+  // Support two modes: raw HTML (AI Studio) or structured receipt data (Manual Editor)
+  if (!d && !rawHtml) { res.status(400).json({ error: 'Receipt data or HTML is required.' }); return; }
 
   const viewport = PAPER_VIEWPORTS[paperSize] ?? PAPER_VIEWPORTS.A4;
+  const htmlContent = rawHtml || buildReceiptHtmlForPdf(d, paperSize);
+  const filename = rawHtml ? `receipt-ai-${Date.now()}.pdf` : `receipt-${d.receiptNumber}.pdf`;
 
   let browser;
   try {
@@ -84,10 +149,9 @@ app.post('/api/generate-pdf', async (req, res) => {
 
     const page = await browser.newPage();
 
-    // Match viewport to the chosen paper size so layout computes correctly
     await page.setViewport({ width: viewport.width, height: viewport.height, deviceScaleFactor: 2 });
 
-    await page.setContent(buildReceiptHtmlForPdf(d, paperSize), { waitUntil: 'networkidle0', timeout: 20_000 });
+    await page.setContent(htmlContent, { waitUntil: 'load', timeout: 15_000 });
     await page.evaluateHandle('document.fonts.ready');
 
     const pdf = await page.pdf({
@@ -97,7 +161,7 @@ app.post('/api/generate-pdf', async (req, res) => {
     });
 
     res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', `attachment; filename="receipt-${d.receiptNumber}.pdf"`);
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
     res.send(Buffer.from(pdf));
 
   } catch (err: any) {
@@ -145,6 +209,182 @@ app.post('/api/send-receipt', async (req, res) => {
     console.error('[email error]', err.message);
     res.status(500).json({ error: `Failed to send email: ${err.message}` });
   }
+});
+
+// ─── POST /api/ai-chat ──────────────────────────────────────────────────────
+// Multi-turn conversation with Gemini 2.0 Flash to build receipts from natural
+// language. Returns { reply: string, receiptData?: object }.
+
+function getAiSystemPrompt(): string {
+  const today = new Date().toISOString().split('T')[0];
+  return `You are ProReceipt AI, a friendly and concise assistant that creates professional receipts through conversation.
+
+WORKFLOW:
+1. GATHER INFO: Ask about business details, items/services, customer info, and payment. Ask 2-3 questions at a time, not everything at once.
+2. DESIGN PREFERENCES: Ask about theme, currency, paper size.
+3. GENERATE: When you have enough info, output a COMPLETE receipt as JSON.
+
+For follow-up edits, modify the full receipt and output the COMPLETE updated JSON.
+
+RULES:
+- Be concise, warm, and professional
+- When you have enough info to generate (even partially — fill in sensible defaults), do so
+- ALWAYS wrap JSON output in a \`\`\`json code block
+- Output the COMPLETE receipt JSON every time (all fields), not partial updates
+- Generate item IDs as "item-1", "item-2", etc.
+- Today's date: ${today}
+
+AVAILABLE OPTIONS:
+Themes: classic, indigo, bold, forest, sunset, ocean, rose, slate
+Currencies: $ (USD), € (EUR), £ (GBP), ¥ (JPY), ₹ (INR), ₩ (KRW), A$ (AUD), C$ (CAD), Fr (CHF), R$ (BRL), ₺ (TRY)
+Paper sizes: A4, Letter, A5, Legal
+Payment methods: Cash, Credit Card, Debit Card, Bank Transfer, PayPal, Stripe, Check, Crypto, Other
+Payment status: paid, unpaid, partial
+
+JSON SCHEMA (use EXACTLY these field names and types):
+{
+  "businessName": "string",
+  "businessAddress": "string",
+  "businessPhone": "string",
+  "businessEmail": "string",
+  "businessWebsite": "string",
+  "receiptNumber": "string (e.g. REC-2024-001)",
+  "date": "YYYY-MM-DD",
+  "dueDate": "YYYY-MM-DD or empty string",
+  "customerName": "string",
+  "customerEmail": "string",
+  "customerPhone": "string",
+  "items": [{"id": "string", "description": "string", "quantity": number, "price": number, "discount": number}],
+  "taxRate": number,
+  "globalDiscount": number,
+  "currency": "symbol string like $ or \\u20b9",
+  "paymentMethod": "string",
+  "paymentStatus": "paid or unpaid or partial",
+  "notes": "string",
+  "theme": "string from available themes",
+  "paperSize": "string from available sizes"
+}`;
+}
+
+app.post('/api/ai-chat', async (req, res) => {
+  const { messages } = req.body ?? {};
+
+  const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
+  if (!GEMINI_API_KEY) {
+    res.status(503).json({ error: 'AI not configured. Set GEMINI_API_KEY in your environment variables.' });
+    return;
+  }
+  if (!Array.isArray(messages) || messages.length === 0) {
+    res.status(400).json({ error: 'Messages are required.' });
+    return;
+  }
+
+  try {
+    const { GoogleGenAI } = await import('@google/genai');
+    const ai = new GoogleGenAI({ apiKey: GEMINI_API_KEY });
+
+    const contents = messages.map((m: { role: string; content: string }) => ({
+      role: m.role === 'user' ? 'user' as const : 'model' as const,
+      parts: [{ text: m.content }],
+    }));
+
+    const response = await ai.models.generateContent({
+      model: 'gemini-2.0-flash',
+      contents,
+      config: { systemInstruction: getAiSystemPrompt() },
+    });
+
+    const reply = response.text ?? '';
+
+    // Extract JSON receipt data if present
+    let receiptData = null;
+    const jsonMatch = reply.match(/```json\s*([\s\S]*?)```/);
+    if (jsonMatch) {
+      try { receiptData = JSON.parse(jsonMatch[1]); } catch { /* ignore bad JSON */ }
+    }
+
+    res.json({ reply, receiptData });
+  } catch (err: any) {
+    console.error('[ai error]', err.message);
+    res.status(500).json({ error: `AI generation failed: ${err.message}` });
+  }
+});
+
+// ─── Chat CRUD ──────────────────────────────────────────────────────────────
+
+// GET /api/chats — list all chats for the authenticated user (summary only)
+app.get('/api/chats', async (req, res) => {
+  const userId = await getUserId(req);
+  if (!userId) { res.status(401).json({ error: 'Unauthorized' }); return; }
+
+  const rows = db.prepare(
+    'SELECT id, title, updated_at FROM chats WHERE user_id = ? ORDER BY updated_at DESC'
+  ).all(userId);
+  res.json(rows);
+});
+
+// GET /api/chats/:id — full chat data
+app.get('/api/chats/:id', async (req, res) => {
+  const userId = await getUserId(req);
+  if (!userId) { res.status(401).json({ error: 'Unauthorized' }); return; }
+
+  const row = db.prepare(
+    'SELECT * FROM chats WHERE id = ? AND user_id = ?'
+  ).get(req.params.id, userId) as any;
+
+  if (!row) { res.status(404).json({ error: 'Chat not found' }); return; }
+  res.json({ ...row, messages: JSON.parse(row.messages) });
+});
+
+// POST /api/chats — create a new chat
+app.post('/api/chats', async (req, res) => {
+  const userId = await getUserId(req);
+  if (!userId) { res.status(401).json({ error: 'Unauthorized' }); return; }
+
+  const id = req.body?.id || crypto.randomUUID();
+  const { title = 'New Chat', messages = [], receipt_html = '' } = req.body ?? {};
+
+  db.prepare(
+    'INSERT INTO chats (id, user_id, title, messages, receipt_html) VALUES (?, ?, ?, ?, ?)'
+  ).run(id, userId, title, JSON.stringify(messages), receipt_html);
+
+  res.json({ id, title, messages, receipt_html });
+});
+
+// PUT /api/chats/:id — update an existing chat
+app.put('/api/chats/:id', async (req, res) => {
+  const userId = await getUserId(req);
+  if (!userId) { res.status(401).json({ error: 'Unauthorized' }); return; }
+
+  const existing = db.prepare(
+    'SELECT id FROM chats WHERE id = ? AND user_id = ?'
+  ).get(req.params.id, userId);
+  if (!existing) { res.status(404).json({ error: 'Chat not found' }); return; }
+
+  const { title, messages, receipt_html } = req.body ?? {};
+  const sets: string[] = [];
+  const vals: any[] = [];
+
+  if (title !== undefined)        { sets.push('title = ?');        vals.push(title); }
+  if (messages !== undefined)     { sets.push('messages = ?');     vals.push(JSON.stringify(messages)); }
+  if (receipt_html !== undefined) { sets.push('receipt_html = ?'); vals.push(receipt_html); }
+
+  if (sets.length === 0) { res.json({ ok: true }); return; }
+
+  sets.push("updated_at = datetime('now')");
+  vals.push(req.params.id, userId);
+
+  db.prepare(`UPDATE chats SET ${sets.join(', ')} WHERE id = ? AND user_id = ?`).run(...vals);
+  res.json({ ok: true });
+});
+
+// DELETE /api/chats/:id
+app.delete('/api/chats/:id', async (req, res) => {
+  const userId = await getUserId(req);
+  if (!userId) { res.status(401).json({ error: 'Unauthorized' }); return; }
+
+  db.prepare('DELETE FROM chats WHERE id = ? AND user_id = ?').run(req.params.id, userId);
+  res.json({ ok: true });
 });
 
 // ─── PDF HTML builder ─────────────────────────────────────────────────────────

@@ -4,18 +4,39 @@
  */
 
 import React, {
-  useState, useRef, useEffect, useCallback,
+  useState, useRef, useEffect, useCallback, createContext, useContext,
   useDeferredValue, memo, type ChangeEvent,
 } from 'react';
 import {
   Plus, Trash2, Download, Receipt, DollarSign,
   FileText, Settings2, Eye, Printer, Save,
   FolderOpen, Palette, CheckCircle2, User, Tag,
-  Mail, Loader2,
+  Mail, Loader2, Sparkles, Send, Moon, Sun,
+  MessageSquare, PanelLeftClose, PanelLeftOpen, LogIn, SquarePen, X, Pencil, Check,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-// html2canvas / jsPDF removed — PDF is now generated server-side by Puppeteer
-// for pixel-perfect output matching the browser preview.
+import { SignInButton, UserButton } from '@clerk/clerk-react';
+
+// ─── Auth Context ────────────────────────────────────────────────────────────
+// Bridges Clerk hooks (called in main.tsx) into a plain React context so
+// components never call Clerk hooks directly — works even without Clerk.
+
+export interface AuthState {
+  clerkEnabled: boolean;
+  isSignedIn: boolean;
+  userId: string | null;
+  getToken: () => Promise<string | null>;
+}
+
+const AuthCtx = createContext<AuthState>({
+  clerkEnabled: false, isSignedIn: false, userId: null, getToken: async () => null,
+});
+
+export const AuthProvider = AuthCtx.Provider;
+export const useAppAuth = () => useContext(AuthCtx);
+
+// Re-export for main.tsx — the bridge component lives there because it calls useAuth()
+export { AuthCtx };
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -94,7 +115,6 @@ export const THEMES: Record<Exclude<ThemeKey,'custom'>, ThemeDef> = {
   slate:   { accent: '#475569', headerBg: '#F8FAFC', headerText: '#334155', label: 'Slate'     },
 };
 
-const STORAGE_KEY = 'proreceipt_saved';
 const API_URL = (import.meta as any).env?.VITE_API_URL ?? '';
 const EMAIL_RE = /^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$/;
 export const isValidEmail = (s: string) => EMAIL_RE.test(s.trim());
@@ -128,8 +148,47 @@ const INITIAL_DATA: ReceiptData = {
 
 // ─── Shared style tokens ──────────────────────────────────────────────────────
 
-export const inp = "w-full px-4 py-2 bg-gray-50 border border-transparent rounded-xl focus:bg-white focus:border-black/10 outline-none transition-all text-sm";
-const btnOutline  = "flex items-center gap-2 bg-white text-black border border-black/10 px-3 py-2 rounded-full text-sm font-medium hover:bg-gray-50 transition-all";
+export const inp = "w-full px-4 py-2 bg-gray-50 border border-transparent rounded-xl focus:bg-white focus:border-black/10 outline-none transition-all text-sm text-black";
+const btnOutlineLight = "flex items-center gap-2 bg-white text-black border border-black/10 px-3 py-2 rounded-full text-sm font-medium hover:bg-gray-50 transition-all";
+const btnOutlineDark  = "flex items-center gap-2 bg-white/10 text-gray-200 border border-white/10 px-3 py-2 rounded-full text-sm font-medium hover:bg-white/15 transition-all";
+
+const STORAGE_KEY      = 'proreceipt_saved';
+const LOCAL_CHATS_KEY  = 'proreceipt_ai_chats';
+
+// Defined here so App() can use it for initial state
+interface AiMessage { role: 'user' | 'ai'; content: string }
+
+// ─── Chat history (localStorage-first) ───────────────────────────────────────
+
+interface ChatEntry {
+  id: string;
+  title: string;
+  messages: AiMessage[];
+  receiptHtml: string;
+  updatedAt: number;
+}
+
+function readLocalChats(): ChatEntry[] {
+  try { return JSON.parse(localStorage.getItem(LOCAL_CHATS_KEY) || '[]'); }
+  catch { return []; }
+}
+function upsertLocalChat(chat: ChatEntry): ChatEntry[] {
+  const list = readLocalChats();
+  const idx = list.findIndex(c => c.id === chat.id);
+  if (idx >= 0) list[idx] = chat; else list.unshift(chat);
+  const sorted = list.sort((a, b) => b.updatedAt - a.updatedAt).slice(0, 100);
+  localStorage.setItem(LOCAL_CHATS_KEY, JSON.stringify(sorted));
+  return sorted;
+}
+function removeLocalChat(id: string): ChatEntry[] {
+  const list = readLocalChats().filter(c => c.id !== id);
+  localStorage.setItem(LOCAL_CHATS_KEY, JSON.stringify(list));
+  return list;
+}
+const AI_STUDIO_GREETING: AiMessage = {
+  role: 'ai',
+  content: "Welcome to AI Studio! Describe the receipt you'd like — your business, items, customer details, and any style preferences. I'll design a completely unique receipt for you from scratch.",
+};
 
 // ─── Main App ─────────────────────────────────────────────────────────────────
 
@@ -148,6 +207,14 @@ export default function App() {
   // re-initialise its local state without remounting (VS Code: lazy re-indexing).
   const [syncKey, setSyncKey]         = useState(0);
   const [mobileTab, setMobileTab]     = useState<'editor' | 'preview'>('editor');
+  const [mode, setMode]               = useState<'manual' | 'ai'>('manual');
+
+  // AI Studio — lifted here so state survives switching between Manual / AI tabs
+  const [aiMessages, setAiMessages]       = useState<AiMessage[]>([AI_STUDIO_GREETING]);
+  const [aiReceiptHtml, setAiReceiptHtml] = useState('');
+  const [currentChatId, setCurrentChatId] = useState<string | null>(null);
+  const [dark, setDark]                       = useState(() => localStorage.getItem('proreceipt_dark') === 'true');
+  const btnOutline = dark ? btnOutlineDark : btnOutlineLight;
 
   // useDeferredValue decouples preview renders from editor renders:
   // inputs update at high priority; preview repaints at lower priority.
@@ -159,6 +226,11 @@ export default function App() {
     const stored = localStorage.getItem(STORAGE_KEY);
     if (stored) setSavedReceipts(JSON.parse(stored));
   }, []);
+
+  useEffect(() => {
+    document.documentElement.classList.toggle('dark', dark);
+    localStorage.setItem('proreceipt_dark', String(dark));
+  }, [dark]);
 
   const showToast = useCallback((msg: string, type: 'ok'|'err' = 'ok') => {
     setToast({ msg, type });
@@ -257,7 +329,7 @@ export default function App() {
   // ─────────────────────────────────────────────────────────────────────────────
 
   return (
-    <div className="min-h-screen flex flex-col bg-[#F5F5F5] text-[#1A1A1A] font-sans lg:h-screen lg:overflow-hidden">
+    <div className={`min-h-screen flex flex-col font-sans lg:h-screen lg:overflow-hidden transition-colors duration-300 ${dark ? 'bg-[#121212] text-gray-100' : 'bg-[#F5F5F5] text-[#1A1A1A]'}`}>
 
       {/* Toast */}
       <AnimatePresence>
@@ -274,53 +346,69 @@ export default function App() {
       </AnimatePresence>
 
       {/* Header */}
-      <header className="shrink-0 z-50 bg-white/90 backdrop-blur-md border-b border-black/5 px-4 sm:px-6 py-3 sm:py-4 flex justify-between items-center no-print">
-        <div className="flex items-center gap-2">
+      <header className={`shrink-0 z-50 backdrop-blur-md border-b px-4 sm:px-6 py-3 sm:py-4 flex justify-between items-center no-print transition-colors duration-300 ${dark ? 'bg-[#1e1e1e]/90 border-white/10' : 'bg-white/90 border-black/5'}`}>
+        <div className="flex items-center gap-2 sm:gap-3">
           <div className="w-8 h-8 bg-[#1A1A1A] rounded-lg flex items-center justify-center shrink-0">
             <Receipt className="text-white w-5 h-5" />
           </div>
-          <h1 className="text-base sm:text-lg font-semibold tracking-tight">ProReceipt</h1>
+          <h1 className="text-base sm:text-lg font-semibold tracking-tight hidden sm:block">ProReceipt</h1>
+          {/* Mode toggle */}
+          <div className={`flex rounded-full p-0.5 text-xs sm:text-sm font-medium ${dark ? 'bg-white/10' : 'bg-gray-100'}`}>
+            <button onClick={() => setMode('manual')}
+              className={`px-3 py-1.5 rounded-full transition-all ${mode === 'manual' ? (dark ? 'bg-white/20 text-white shadow-sm' : 'bg-white text-black shadow-sm') : (dark ? 'text-gray-400 hover:text-gray-200' : 'text-gray-400 hover:text-gray-600')}`}>
+              Manual
+            </button>
+            <button onClick={() => setMode('ai')}
+              className={`px-3 py-1.5 rounded-full transition-all flex items-center gap-1 ${mode === 'ai' ? (dark ? 'bg-white/20 text-white shadow-sm' : 'bg-white text-black shadow-sm') : (dark ? 'text-gray-400 hover:text-gray-200' : 'text-gray-400 hover:text-gray-600')}`}>
+              <Sparkles className="w-3 h-3" /> AI Studio
+            </button>
+          </div>
         </div>
-        <div className="flex items-center gap-1.5 sm:gap-2">
-          <button onClick={() => setShowLoadModal(true)} className={btnOutline}>
-            <FolderOpen className="w-4 h-4" /> <span className="hidden sm:inline">Load</span>
-          </button>
-          <button onClick={() => { setSaveName(`${data.businessName} – ${data.receiptNumber}`); setShowSaveModal(true); }} className={btnOutline}>
-            <Save className="w-4 h-4" /> <span className="hidden sm:inline">Save</span>
-          </button>
-          <button onClick={() => window.print()} className={btnOutline}>
-            <Printer className="w-4 h-4" /> <span className="hidden sm:inline">Print</span>
-          </button>
-          <button onClick={handleSendEmail} disabled={isSending}
-            className={`${btnOutline} disabled:opacity-50 disabled:cursor-not-allowed`}>
-            {isSending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Mail className="w-4 h-4" />}
-            <span className="hidden sm:inline">{isSending ? 'Sending…' : 'Email'}</span>
-          </button>
-          <button onClick={handleDownloadPDF} disabled={isGenerating}
-            className="flex items-center gap-1.5 sm:gap-2 bg-[#1A1A1A] text-white px-3 sm:px-4 py-2 rounded-full text-sm font-medium hover:bg-black transition-all disabled:opacity-50 disabled:cursor-not-allowed">
-            {isGenerating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
-            <span className="hidden sm:inline">{isGenerating ? 'Generating…' : 'Download PDF'}</span>
-          </button>
-        </div>
+        {mode === 'manual' && (
+          <div className="flex items-center gap-1.5 sm:gap-2">
+            <button onClick={() => setShowLoadModal(true)} className={btnOutline}>
+              <FolderOpen className="w-4 h-4" /> <span className="hidden sm:inline">Load</span>
+            </button>
+            <button onClick={() => { setSaveName(`${data.businessName} – ${data.receiptNumber}`); setShowSaveModal(true); }} className={btnOutline}>
+              <Save className="w-4 h-4" /> <span className="hidden sm:inline">Save</span>
+            </button>
+            <button onClick={() => window.print()} className={btnOutline}>
+              <Printer className="w-4 h-4" /> <span className="hidden sm:inline">Print</span>
+            </button>
+            <button onClick={handleSendEmail} disabled={isSending}
+              className={`${btnOutline} disabled:opacity-50 disabled:cursor-not-allowed`}>
+              {isSending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Mail className="w-4 h-4" />}
+              <span className="hidden sm:inline">{isSending ? 'Sending…' : 'Email'}</span>
+            </button>
+            <button onClick={handleDownloadPDF} disabled={isGenerating}
+              className={`flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2 rounded-full text-sm font-medium transition-all disabled:opacity-50 disabled:cursor-not-allowed ${dark ? 'bg-indigo-600 text-white hover:bg-indigo-500' : 'bg-[#1A1A1A] text-white hover:bg-black'}`}>
+              {isGenerating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+              <span className="hidden sm:inline">{isGenerating ? 'Generating…' : 'Download PDF'}</span>
+            </button>
+          </div>
+        )}
       </header>
 
-      {/* Mobile tab switcher — only visible below lg breakpoint */}
-      <div className="lg:hidden shrink-0 flex bg-white border-b border-black/5 no-print">
-        <button
-          onClick={() => setMobileTab('editor')}
-          className={`flex-1 py-2.5 text-sm font-medium transition-colors ${mobileTab === 'editor' ? 'text-black border-b-2 border-black' : 'text-gray-400'}`}
-        >
-          Editor
-        </button>
-        <button
-          onClick={() => setMobileTab('preview')}
-          className={`flex-1 py-2.5 text-sm font-medium transition-colors ${mobileTab === 'preview' ? 'text-black border-b-2 border-black' : 'text-gray-400'}`}
-        >
-          Preview
-        </button>
-      </div>
+      {/* Mobile tab switcher — Manual mode only, below lg */}
+      {mode === 'manual' && (
+        <div className={`lg:hidden shrink-0 flex border-b no-print transition-colors duration-300 ${dark ? 'bg-[#1e1e1e] border-white/10' : 'bg-white border-black/5'}`}>
+          <button
+            onClick={() => setMobileTab('editor')}
+            className={`flex-1 py-2.5 text-sm font-medium transition-colors ${mobileTab === 'editor' ? (dark ? 'text-white border-b-2 border-white' : 'text-black border-b-2 border-black') : 'text-gray-400'}`}
+          >
+            Editor
+          </button>
+          <button
+            onClick={() => setMobileTab('preview')}
+            className={`flex-1 py-2.5 text-sm font-medium transition-colors ${mobileTab === 'preview' ? (dark ? 'text-white border-b-2 border-white' : 'text-black border-b-2 border-black') : 'text-gray-400'}`}
+          >
+            Preview
+          </button>
+        </div>
+      )}
 
-      {/* Two-panel layout */}
+      {/* ── Manual Editor Layout ── */}
+      {mode === 'manual' ? (
       <div className="lg:flex-1 lg:min-h-0 lg:overflow-hidden">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 py-4 sm:py-6 grid grid-cols-1 lg:grid-cols-2 gap-6 lg:h-full">
 
@@ -346,6 +434,19 @@ export default function App() {
 
         </div>
       </div>
+      ) : (
+      /* ── AI Studio Layout ── */
+      <AIStudio
+        receiptHtml={aiReceiptHtml}
+        setReceiptHtml={setAiReceiptHtml}
+        messages={aiMessages}
+        setMessages={setAiMessages}
+        currentChatId={currentChatId}
+        setCurrentChatId={setCurrentChatId}
+        dark={dark}
+        showToast={showToast}
+      />
+      )}
 
       {/* Print overlay */}
       <div className="hidden print:block fixed inset-0 bg-white z-9999" />
@@ -389,6 +490,29 @@ export default function App() {
           </Modal>
         )}
       </AnimatePresence>
+
+      {/* Dark mode FAB */}
+      <motion.button
+        onClick={() => setDark(d => !d)}
+        className={`fixed bottom-6 right-6 z-50 w-12 h-12 rounded-full shadow-lg flex items-center justify-center no-print transition-colors duration-300 ${
+          dark ? 'bg-yellow-400 hover:bg-yellow-300 text-gray-900' : 'bg-[#1e1e2e] hover:bg-[#2a2a3e] text-yellow-300'
+        }`}
+        whileHover={{ scale: 1.1 }}
+        whileTap={{ scale: 0.9 }}
+        title={dark ? 'Switch to light mode' : 'Switch to dark mode'}
+      >
+        <AnimatePresence mode="wait">
+          {dark ? (
+            <motion.div key="sun" initial={{ rotate: -90, opacity: 0 }} animate={{ rotate: 0, opacity: 1 }} exit={{ rotate: 90, opacity: 0 }} transition={{ duration: 0.2 }}>
+              <Sun className="w-5 h-5" />
+            </motion.div>
+          ) : (
+            <motion.div key="moon" initial={{ rotate: 90, opacity: 0 }} animate={{ rotate: 0, opacity: 1 }} exit={{ rotate: -90, opacity: 0 }} transition={{ duration: 0.2 }}>
+              <Moon className="w-5 h-5" />
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </motion.button>
     </div>
   );
 }
@@ -778,7 +902,7 @@ const NotesCard = memo(function NotesCard({ onUpdate, syncKey, initial }: CardPr
   return (
     <Card icon={<FileText className="w-4 h-4 text-gray-400" />} title="Notes">
       <textarea value={notes} onChange={handleChange}
-        className="w-full px-4 py-3 bg-gray-50 border border-transparent rounded-xl focus:bg-white focus:border-black/10 outline-none transition-all min-h-20 text-sm"
+        className="w-full px-4 py-3 bg-gray-50 border border-transparent rounded-xl focus:bg-white focus:border-black/10 outline-none transition-all min-h-20 text-sm text-black"
         placeholder="Additional notes or terms…" />
     </Card>
   );
@@ -945,6 +1069,595 @@ const ReceiptPreview = memo(function ReceiptPreview({
   );
 });
 
+// ─────────────────────────────────────────────────────────────────────────────
+// AI STUDIO — Generates complete HTML receipts with unique creative designs
+// Chat + live iframe preview. State is lifted to App to survive tab switching.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const AI_LOADING_MSGS = [
+  'Crafting your receipt design...',
+  'Laying out the structure...',
+  'Adding creative touches...',
+  'Styling the typography...',
+  'Fine-tuning every detail...',
+  'Polishing the final result...',
+  'Your receipt is almost ready...',
+  'Just a moment more...',
+];
+
+const AI_STUDIO_PROMPT = `You are ProReceipt AI Studio, a friendly and creative receipt designer assistant.
+
+CONVERSATION RULES:
+- You are a conversational assistant FIRST. Respond naturally to greetings, questions, and casual messages.
+- Only generate a receipt when the user clearly intends to create or modify one (e.g., mentions a business, items, prices, or explicitly asks for a receipt).
+- If the user says something like "hello", "how are you", "what can you do", or anything NOT related to receipt creation, just reply conversationally — do NOT generate any HTML.
+- When unsure if the user wants a receipt, ask a clarifying question instead of generating one.
+
+WHEN TO GENERATE A RECEIPT:
+- The user mentions a business name, items/services, prices, or says "create a receipt", "make me a receipt", etc.
+- The user provides enough context that clearly implies they want a receipt (e.g., "I sold 3 laptops to John for $500 each").
+- The user asks to modify an existing receipt (only if one was already generated in the conversation).
+- If the user gives partial info (e.g., just a business name), you may ask 1-2 quick questions OR generate with sensible defaults — use your judgment based on how much info they gave.
+
+RULES FOR HTML OUTPUT (only when generating a receipt):
+- Output a COMPLETE HTML document (<!DOCTYPE html> to </html>)
+- ALWAYS wrap the HTML in a \`\`\`html code block
+- Include ALL styles inline or in a <style> tag — NO external CSS files
+- You may use Google Fonts via <link> tags
+- Design must be CREATIVE and UNIQUE — vary layouts, color schemes, typography, and decorative elements
+- The receipt should look like a real, beautifully designed document
+- Make it print-friendly (max-width ~800px, centered)
+- Include all receipt details: business info, items table, totals, tax, payment info, dates
+- Calculate totals, tax, and discounts correctly
+- Fill in missing details with realistic examples when generating
+- Today's date: ${new Date().toISOString().split('T')[0]}
+
+DESIGN GUIDELINES:
+- Each receipt should have a distinct visual identity
+- Use creative color palettes, gradients, borders, shadows
+- Vary between minimal, bold, elegant, modern, vintage, corporate styles
+- Add subtle decorative elements (dividers, icons via CSS, patterns)
+- Ensure text is readable and layout is clean despite creative styling
+
+IMPORTANT:
+- Do NOT include a \`\`\`html code block unless you are actually generating/updating a receipt
+- For follow-up edits, output the COMPLETE updated HTML receipt
+- Be concise and friendly in all responses`;
+
+
+function AIStudio({ receiptHtml, setReceiptHtml, messages, setMessages, currentChatId, setCurrentChatId, dark, showToast }: {
+  receiptHtml: string;
+  setReceiptHtml: (h: string) => void;
+  messages: AiMessage[];
+  setMessages: (m: AiMessage[]) => void;
+  currentChatId: string | null;
+  setCurrentChatId: (id: string | null) => void;
+  dark: boolean;
+  showToast: (msg: string, type?: 'ok' | 'err') => void;
+}) {
+  const auth = useAppAuth();
+  const [input, setInput]                 = useState('');
+  const [isLoading, setIsLoading]         = useState(false);
+  const [loadingStep, setLoadingStep]     = useState(0);
+  const [isDownloading, setIsDownloading]   = useState(false);
+  const [sidebarOpen, setSidebarOpen]       = useState(false);
+  const [mobilePanel, setMobilePanel]       = useState<'chat' | 'preview'>('chat');
+  const [renamingId, setRenamingId]         = useState<string | null>(null);
+  const [renameValue, setRenameValue]       = useState('');
+  // localStorage is the source of truth — works without server or sign-in
+  const [chats, setChats] = useState<ChatEntry[]>(() => readLocalChats());
+  const scrollRef      = useRef<HTMLDivElement>(null);
+  const renameInputRef = useRef<HTMLInputElement>(null);
+
+  // ── Persist a chat to localStorage (and server if signed in) ──
+  const persistChat = useCallback(async (
+    id: string, msgs: AiMessage[], html: string,
+  ) => {
+    const title = msgs.find(m => m.role === 'user')?.content.slice(0, 60) || 'New Chat';
+    const entry: ChatEntry = { id, title, messages: msgs, receiptHtml: html, updatedAt: Date.now() };
+    setChats(upsertLocalChat(entry));
+
+    // Also sync to server when signed in (best-effort, silent fail)
+    if (auth.isSignedIn) {
+      const token = await auth.getToken().catch(() => null);
+      if (!token) return;
+      // Try update first, fall back to create
+      const upd = await fetch(`${API_URL}/api/chats/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ title, messages: msgs, receipt_html: html }),
+      }).catch(() => null);
+      // If the chat doesn't exist on the server yet (404), create it
+      if (upd && upd.status === 404) {
+        await fetch(`${API_URL}/api/chats`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ id, title, messages: msgs, receipt_html: html }),
+        }).catch(() => {});
+      }
+    }
+  }, [auth.isSignedIn, auth.getToken]);
+
+  // ── New Chat ──
+  const newChat = () => {
+    setMessages([AI_STUDIO_GREETING]);
+    setReceiptHtml('');
+    setCurrentChatId(null);
+    setSidebarOpen(false);
+    setMobilePanel('chat');
+  };
+
+  // ── Load a chat from sidebar ──
+  const loadChat = (chatId: string) => {
+    const entry = readLocalChats().find(c => c.id === chatId);
+    if (!entry) return;
+    setMessages(entry.messages);
+    setReceiptHtml(entry.receiptHtml);
+    setCurrentChatId(chatId);
+    setSidebarOpen(false);
+    setMobilePanel(entry.receiptHtml ? 'preview' : 'chat');
+  };
+
+  // ── Delete a chat ──
+  const deleteChat = async (chatId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setChats(removeLocalChat(chatId));
+    if (currentChatId === chatId) {
+      setMessages([AI_STUDIO_GREETING]);
+      setReceiptHtml('');
+      setCurrentChatId(null);
+    }
+    // Also delete from server if signed in
+    if (auth.isSignedIn) {
+      const token = await auth.getToken().catch(() => null);
+      if (token) {
+        fetch(`${API_URL}/api/chats/${chatId}`, {
+          method: 'DELETE',
+          headers: { Authorization: `Bearer ${token}` },
+        }).catch(() => {});
+      }
+    }
+  };
+
+  // ── Rename a chat ──
+  const startRename = (chat: ChatEntry, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setRenamingId(chat.id);
+    setRenameValue(chat.title);
+    setTimeout(() => { renameInputRef.current?.select(); }, 0);
+  };
+
+  const commitRename = async (chatId: string) => {
+    const newTitle = renameValue.trim();
+    if (!newTitle) { setRenamingId(null); return; }
+    const updated = readLocalChats().map(c => c.id === chatId ? { ...c, title: newTitle } : c);
+    localStorage.setItem(LOCAL_CHATS_KEY, JSON.stringify(updated));
+    setChats(updated);
+    setRenamingId(null);
+    // Sync to server if signed in
+    if (auth.isSignedIn) {
+      const token = await auth.getToken().catch(() => null);
+      if (token) {
+        fetch(`${API_URL}/api/chats/${chatId}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ title: newTitle }),
+        }).catch(() => {});
+      }
+    }
+  };
+
+  // ── Auto-scroll ──
+  useEffect(() => { scrollRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages, isLoading]);
+
+  // ── Loading step animation ──
+  useEffect(() => {
+    if (!isLoading) return;
+    const id = setInterval(() => setLoadingStep(s => (s + 1) % AI_LOADING_MSGS.length), 2500);
+    return () => clearInterval(id);
+  }, [isLoading]);
+
+  // ── Send message ──
+  const send = async () => {
+    const text = input.trim();
+    if (!text || isLoading) return;
+    setInput('');
+    const next: AiMessage[] = [...messages, { role: 'user', content: text }];
+    setMessages(next);
+    setIsLoading(true);
+    setLoadingStep(0);
+
+    // Ensure we have a stable ID for this conversation from the very first message
+    const chatId = currentChatId ?? (() => {
+      const id = crypto.randomUUID();
+      setCurrentChatId(id);
+      return id;
+    })();
+
+    try {
+      const apiKey = (process.env as any).OPENAI_API_KEY;
+      if (!apiKey) throw new Error('OPENAI_API_KEY is not set. Add it to .env.example and restart the dev server.');
+
+      const res = await fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify({
+          model: 'gpt-4o-mini',
+          messages: [
+            { role: 'system', content: AI_STUDIO_PROMPT },
+            ...next.slice(1).map(m => ({
+              role: m.role === 'user' ? 'user' : 'assistant',
+              content: m.content,
+            })),
+          ],
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error?.message ?? `API error ${res.status}`);
+
+      const fullReply: string = data.choices?.[0]?.message?.content ?? '';
+      let newHtml = receiptHtml;
+      const htmlMatch = fullReply.match(/```html\s*([\s\S]*?)```/);
+      if (htmlMatch) {
+        newHtml = htmlMatch[1].trim();
+        setReceiptHtml(newHtml);
+        // Auto-switch to preview on mobile when receipt is ready
+        if (window.innerWidth < 1024) setMobilePanel('preview');
+      }
+
+      const finalMessages = [...next, { role: 'ai' as const, content: fullReply }];
+      setMessages(finalMessages);
+
+      // Save to localStorage (and server if signed in) after AI responds
+      persistChat(chatId, finalMessages, newHtml);
+    } catch (err: any) {
+      const errMessages = [...next, { role: 'ai' as const, content: `Something went wrong: ${err.message}` }];
+      setMessages(errMessages);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // ── Download PDF ──
+  const downloadPdf = async () => {
+    if (!receiptHtml) return;
+    setIsDownloading(true);
+    try {
+      const res = await fetch(`${API_URL}/api/generate-pdf`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ html: receiptHtml }),
+      });
+      if (!res.ok) {
+        let errMsg = 'PDF generation failed';
+        try { const j = await res.json(); errMsg = j.error || errMsg; } catch { /* ignore */ }
+        throw new Error(errMsg);
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `receipt-ai-${Date.now()}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(url), 100);
+      showToast('PDF downloaded successfully!', 'ok');
+    } catch (err: any) {
+      showToast(err.message || 'Failed to download PDF', 'err');
+    } finally {
+      setIsDownloading(false);
+    }
+  };
+
+  const displayContent = (msg: AiMessage) =>
+    msg.role === 'ai' ? (msg.content.replace(/```html[\s\S]*?```/g, '').trim() || 'Receipt generated! Check the preview.') : msg.content;
+
+  // ── Dark-aware tokens ──
+  const cardBg    = dark ? 'bg-[#1e1e1e] border-white/10' : 'bg-white border-black/5';
+  const headerBdr = dark ? 'border-white/10' : 'border-gray-100';
+  const inputBg   = dark ? 'bg-white/5 border-white/10 text-gray-100 placeholder-gray-500 focus:border-indigo-400' : 'bg-gray-50 border-gray-200 text-gray-800 placeholder-gray-400 focus:border-indigo-400';
+  const sidebarBg = dark ? 'bg-[#171717]' : 'bg-gray-50';
+  const sidebarItemBg = dark ? 'hover:bg-white/5' : 'hover:bg-gray-100';
+  const sidebarItemActive = dark ? 'bg-white/10 text-white' : 'bg-indigo-50 text-indigo-700';
+
+  return (
+    <div className="flex-1 flex min-h-0 overflow-hidden">
+
+      {/* ── Sidebar (desktop: always visible, mobile: overlay) ── */}
+
+      {/* Mobile backdrop */}
+      <AnimatePresence>
+        {sidebarOpen && (
+          <motion.div
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/40 backdrop-blur-sm z-40 lg:hidden"
+            onClick={() => setSidebarOpen(false)}
+          />
+        )}
+      </AnimatePresence>
+
+      {/* Sidebar panel */}
+      <div className={`
+        fixed lg:relative inset-y-0 left-0 z-50 lg:z-auto
+        w-64 shrink-0 flex flex-col border-r transition-transform duration-200
+        ${sidebarBg} ${dark ? 'border-white/10' : 'border-gray-200'}
+        ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'} lg:translate-x-0
+      `}>
+        {/* Sidebar header */}
+        <div className={`shrink-0 flex items-center justify-between px-4 py-4 border-b ${headerBdr}`}>
+          <button onClick={newChat}
+            className={`flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-medium transition-colors w-full ${dark ? 'bg-white/10 text-gray-200 hover:bg-white/15' : 'bg-white text-gray-700 hover:bg-gray-100 border border-gray-200'}`}>
+            <SquarePen className="w-4 h-4" /> New Chat
+          </button>
+          <button onClick={() => setSidebarOpen(false)} className={`lg:hidden ml-2 p-1.5 rounded-lg ${dark ? 'hover:bg-white/10 text-gray-400' : 'hover:bg-gray-200 text-gray-500'}`}>
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+
+        {/* Chat list — always shown from localStorage */}
+        <div className="flex-1 overflow-y-auto px-2 py-2">
+          {chats.length === 0 ? (
+            <p className={`text-xs text-center py-8 px-4 ${dark ? 'text-gray-500' : 'text-gray-400'}`}>
+              No chats yet. Start a conversation!
+            </p>
+          ) : (
+            <div className="space-y-0.5">
+              {chats.map(chat => (
+                <div key={chat.id}
+                  onClick={() => renamingId === chat.id ? undefined : loadChat(chat.id)}
+                  className={`group flex items-center gap-2 px-3 py-2.5 rounded-xl transition-colors text-sm ${
+                    renamingId === chat.id ? (dark ? 'bg-white/5' : 'bg-gray-100') :
+                    currentChatId === chat.id ? sidebarItemActive : `cursor-pointer ${dark ? 'text-gray-300' : 'text-gray-600'} ${sidebarItemBg}`
+                  }`}>
+                  <MessageSquare className="w-3.5 h-3.5 shrink-0 opacity-50" />
+                  {renamingId === chat.id ? (
+                    <input
+                      ref={renameInputRef}
+                      value={renameValue}
+                      onChange={e => setRenameValue(e.target.value)}
+                      onKeyDown={e => {
+                        if (e.key === 'Enter') commitRename(chat.id);
+                        if (e.key === 'Escape') setRenamingId(null);
+                      }}
+                      onBlur={() => commitRename(chat.id)}
+                      onClick={e => e.stopPropagation()}
+                      className={`flex-1 min-w-0 text-sm bg-transparent outline-none border-b ${dark ? 'border-indigo-400 text-gray-100' : 'border-indigo-500 text-gray-800'}`}
+                    />
+                  ) : (
+                    <span className="flex-1 truncate">{chat.title}</span>
+                  )}
+                  {renamingId === chat.id ? (
+                    <button onMouseDown={e => { e.preventDefault(); commitRename(chat.id); }}
+                      className="p-1 rounded-md text-indigo-500 hover:bg-indigo-100 dark:hover:bg-indigo-900/30 transition-all shrink-0">
+                      <Check className="w-3 h-3" />
+                    </button>
+                  ) : (
+                    <div className="opacity-0 group-hover:opacity-100 flex items-center gap-0.5 shrink-0">
+                      <button onClick={(e) => startRename(chat, e)}
+                        className={`p-1 rounded-md transition-all ${dark ? 'hover:bg-white/10 text-gray-400' : 'hover:bg-gray-200 text-gray-400'}`}>
+                        <Pencil className="w-3 h-3" />
+                      </button>
+                      <button onClick={(e) => deleteChat(chat.id, e)}
+                        className="p-1 rounded-md hover:bg-red-100 hover:text-red-600 dark:hover:bg-red-900/30 dark:hover:text-red-400 transition-all">
+                        <Trash2 className="w-3 h-3" />
+                      </button>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Sidebar footer — auth */}
+        <div className={`shrink-0 border-t px-4 py-3 ${headerBdr}`}>
+          {auth.clerkEnabled ? (
+            auth.isSignedIn ? (
+              <div className="flex items-center gap-3">
+                <UserButton
+                  appearance={{
+                    elements: { avatarBox: 'w-8 h-8' },
+                  }}
+                />
+                <span className={`text-xs truncate ${dark ? 'text-gray-400' : 'text-gray-500'}`}>My Account</span>
+              </div>
+            ) : (
+              <SignInButton mode="modal">
+                <button className={`flex items-center gap-2 w-full px-3 py-2.5 rounded-xl text-sm font-medium transition-colors ${dark ? 'bg-white/10 text-gray-200 hover:bg-white/15' : 'bg-indigo-50 text-indigo-700 hover:bg-indigo-100'}`}>
+                  <LogIn className="w-4 h-4" /> Sign In
+                </button>
+              </SignInButton>
+            )
+          ) : (
+            <p className={`text-[10px] text-center ${dark ? 'text-gray-600' : 'text-gray-300'}`}>
+              Auth not configured
+            </p>
+          )}
+        </div>
+      </div>
+
+      {/* ── Main content (chat + preview) ── */}
+      <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
+
+        {/* Mobile tab bar — hidden on desktop */}
+        <div className={`lg:hidden shrink-0 flex border-b ${dark ? 'border-white/10 bg-[#171717]' : 'border-gray-200 bg-gray-50'}`}>
+          <button onClick={() => setMobilePanel('chat')}
+            className={`flex-1 flex items-center justify-center gap-1.5 py-3 text-sm font-medium transition-colors border-b-2 ${
+              mobilePanel === 'chat'
+                ? 'border-indigo-500 text-indigo-600'
+                : `border-transparent ${dark ? 'text-gray-400' : 'text-gray-500'}`
+            }`}>
+            <MessageSquare className="w-4 h-4" /> Chat
+          </button>
+          <button onClick={() => setMobilePanel('preview')}
+            className={`flex-1 flex items-center justify-center gap-1.5 py-3 text-sm font-medium transition-colors border-b-2 ${
+              mobilePanel === 'preview'
+                ? 'border-indigo-500 text-indigo-600'
+                : `border-transparent ${dark ? 'text-gray-400' : 'text-gray-500'}`
+            }`}>
+            <Eye className="w-4 h-4" /> Preview
+            {receiptHtml && <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 ml-0.5" />}
+          </button>
+        </div>
+
+        <div className="flex-1 flex lg:flex-row min-h-0 gap-0 lg:gap-4 p-2 sm:p-4 overflow-hidden">
+
+          {/* Chat panel */}
+          <div className={`${mobilePanel === 'chat' ? 'flex' : 'hidden'} lg:flex flex-1 flex-col rounded-2xl shadow-sm border min-h-0 min-w-0 ${cardBg}`}>
+            {/* Chat header */}
+            <div className={`shrink-0 flex items-center gap-2.5 px-4 sm:px-5 py-3 sm:py-4 border-b ${headerBdr}`}>
+              <button onClick={() => setSidebarOpen(true)}
+                className={`lg:hidden p-1.5 -ml-1 rounded-lg ${dark ? 'hover:bg-white/10 text-gray-400' : 'hover:bg-gray-100 text-gray-500'}`}>
+                <PanelLeftOpen className="w-4 h-4" />
+              </button>
+              <div className="w-8 h-8 rounded-lg bg-linear-to-br from-indigo-600 to-purple-600 flex items-center justify-center shrink-0">
+                <Sparkles className="w-4 h-4 text-white" />
+              </div>
+              <div className="min-w-0">
+                <h2 className={`text-sm font-semibold ${dark ? 'text-gray-100' : 'text-gray-800'}`}>AI Studio</h2>
+                <p className="text-[10px] text-gray-400">Powered by GPT-4o mini</p>
+              </div>
+            </div>
+
+            {/* Messages */}
+            <div className="flex-1 min-h-0 overflow-y-auto px-4 py-4">
+              <div className="space-y-3">
+                {messages.map((msg, i) => (
+                  <motion.div key={i} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }}
+                    className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                    <div className={`max-w-[85%] rounded-2xl px-4 py-2.5 text-sm leading-relaxed whitespace-pre-wrap ${
+                      msg.role === 'user'
+                        ? 'bg-indigo-600 text-white'
+                        : dark ? 'bg-white/5 text-gray-200 border border-white/10' : 'bg-gray-50 text-gray-700 border border-gray-100'
+                    }`}>
+                      {displayContent(msg)}
+                    </div>
+                  </motion.div>
+                ))}
+
+                {/* AI thinking animation */}
+                {isLoading && (
+                  <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} className="flex justify-start">
+                    <div className={`rounded-2xl px-5 py-4 space-y-3 max-w-[280px] ${dark ? 'bg-white/5 border border-white/10' : 'bg-gray-50 border border-gray-100'}`}>
+                      <div className="space-y-2">
+                        <div className="flex items-center gap-2 mb-3">
+                          <motion.div
+                            className="w-5 h-5 rounded-full bg-linear-to-br from-indigo-500 to-purple-500 flex items-center justify-center"
+                            animate={{ scale: [1, 1.2, 1] }}
+                            transition={{ duration: 1.5, repeat: Infinity }}
+                          >
+                            <Sparkles className="w-3 h-3 text-white" />
+                          </motion.div>
+                          <span className={`text-xs font-medium ${dark ? 'text-gray-300' : 'text-gray-500'}`}>
+                            {AI_LOADING_MSGS[loadingStep]}
+                          </span>
+                        </div>
+                        {[0.9, 0.7, 0.5].map((width, i) => (
+                          <motion.div key={i}
+                            className={`h-2.5 rounded-full overflow-hidden ${dark ? 'bg-white/5' : 'bg-gray-200/60'}`}
+                            style={{ width: `${width * 100}%` }}>
+                            <motion.div
+                              className="h-full w-full bg-linear-to-r from-transparent via-indigo-400/30 to-transparent"
+                              animate={{ x: ['-100%', '100%'] }}
+                              transition={{ duration: 1.5, repeat: Infinity, delay: i * 0.2, ease: 'linear' }}
+                            />
+                          </motion.div>
+                        ))}
+                      </div>
+                      <div className="flex items-center gap-1 pt-1">
+                        {[0, 1, 2].map(i => (
+                          <motion.div key={i}
+                            className="w-1.5 h-1.5 rounded-full bg-indigo-500"
+                            animate={{ opacity: [0.3, 1, 0.3], scale: [0.8, 1.1, 0.8] }}
+                            transition={{ duration: 1.2, repeat: Infinity, delay: i * 0.25 }}
+                          />
+                        ))}
+                      </div>
+                    </div>
+                  </motion.div>
+                )}
+                <div ref={scrollRef} />
+              </div>
+            </div>
+
+            {/* Input */}
+            <div className={`shrink-0 border-t px-4 py-3 ${headerBdr}`}>
+              <div className="flex gap-2">
+                <input value={input} onChange={e => setInput(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && !e.shiftKey && send()}
+                  placeholder={receiptHtml ? 'Describe changes...' : 'Describe your receipt...'}
+                  disabled={isLoading}
+                  className={`flex-1 rounded-xl px-4 py-2.5 text-sm outline-none transition-colors disabled:opacity-40 border ${inputBg}`}
+                  autoFocus />
+                <button onClick={send} disabled={!input.trim() || isLoading}
+                  className="px-4 py-2.5 bg-indigo-600 text-white rounded-xl text-sm font-medium hover:bg-indigo-500 transition-colors disabled:opacity-30 disabled:cursor-not-allowed shrink-0">
+                  <Send className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* Preview panel */}
+          <div className={`${mobilePanel === 'preview' ? 'flex' : 'hidden'} lg:flex flex-1 flex-col rounded-2xl shadow-sm border min-h-0 min-w-0 ${cardBg}`}>
+            <div className={`shrink-0 flex items-center justify-between px-5 py-4 border-b ${headerBdr}`}>
+              <div className="flex items-center gap-2">
+                <Eye className="w-4 h-4 text-gray-400" />
+                <h2 className={`text-sm font-semibold ${dark ? 'text-gray-100' : 'text-gray-800'}`}>Preview</h2>
+              </div>
+              {receiptHtml && (
+                <button onClick={downloadPdf} disabled={isDownloading}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 text-white rounded-lg text-xs font-medium hover:bg-indigo-500 transition-colors disabled:opacity-50">
+                  {isDownloading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
+                  {isDownloading ? 'Generating...' : 'Download PDF'}
+                </button>
+              )}
+            </div>
+            <div className="flex-1 min-h-0 overflow-hidden">
+              {receiptHtml ? (
+                <iframe srcDoc={receiptHtml} title="AI Receipt Preview" className="w-full h-full border-0" sandbox="allow-same-origin" />
+              ) : (
+                <div className="flex flex-col items-center justify-center h-full gap-5 p-8">
+                  <motion.div
+                    className={`w-48 rounded-xl p-5 space-y-3 ${dark ? 'bg-white/5 border border-white/10' : 'bg-gray-50 border border-gray-100'}`}
+                    animate={{ y: [0, -6, 0] }}
+                    transition={{ duration: 3, repeat: Infinity, ease: 'easeInOut' }}>
+                    <div className="flex justify-center">
+                      <motion.div className={`w-10 h-10 rounded-lg ${dark ? 'bg-indigo-500/20' : 'bg-indigo-100'}`}
+                        animate={{ opacity: [0.4, 0.8, 0.4] }} transition={{ duration: 2, repeat: Infinity }} />
+                    </div>
+                    {[0.7, 1, 0.6, 0.9, 0.5].map((w, i) => (
+                      <motion.div key={i} className={`h-2 rounded-full ${dark ? 'bg-white/8' : 'bg-gray-200'}`}
+                        style={{ width: `${w * 100}%` }} animate={{ opacity: [0.3, 0.7, 0.3] }}
+                        transition={{ duration: 2, repeat: Infinity, delay: i * 0.3 }} />
+                    ))}
+                    <div className={`h-px ${dark ? 'bg-white/10' : 'bg-gray-200'}`} />
+                    <div className="flex justify-between items-center">
+                      <motion.div className={`h-2 w-10 rounded-full ${dark ? 'bg-white/8' : 'bg-gray-200'}`} animate={{ opacity: [0.3, 0.7, 0.3] }} transition={{ duration: 2, repeat: Infinity, delay: 0.5 }} />
+                      <motion.div className={`h-3 w-14 rounded-full ${dark ? 'bg-indigo-500/30' : 'bg-indigo-100'}`} animate={{ opacity: [0.4, 0.8, 0.4] }} transition={{ duration: 2, repeat: Infinity, delay: 0.7 }} />
+                    </div>
+                  </motion.div>
+                  <div className="text-center space-y-1">
+                    <motion.div animate={{ opacity: [0.5, 1, 0.5] }} transition={{ duration: 3, repeat: Infinity }}>
+                      <Sparkles className={`w-5 h-5 mx-auto mb-1 ${dark ? 'text-indigo-400' : 'text-indigo-300'}`} />
+                    </motion.div>
+                    <p className={`text-sm ${dark ? 'text-gray-400' : 'text-gray-400'}`}>Your AI-generated receipt</p>
+                    <p className={`text-xs ${dark ? 'text-gray-500' : 'text-gray-300'}`}>will appear here</p>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Shared helper components ─────────────────────────────────────────────────
 
 export function Field({ label, children }: { label: string; children: React.ReactNode }) {
@@ -962,11 +1675,11 @@ export function Card({
   icon: React.ReactNode; title: string; action?: React.ReactNode; children: React.ReactNode;
 }) {
   return (
-    <div className="bg-white rounded-2xl p-6 shadow-sm border border-black/5">
+    <div className="bg-white dark:bg-[#1e1e1e] rounded-2xl p-6 shadow-sm border border-black/5 dark:border-white/10 transition-colors duration-300">
       <div className="flex items-center justify-between mb-5">
         <div className="flex items-center gap-2">
           {icon}
-          <h2 className="text-sm font-semibold uppercase tracking-wider text-gray-400">{title}</h2>
+          <h2 className="text-sm font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500">{title}</h2>
         </div>
         {action}
       </div>
@@ -981,7 +1694,7 @@ function Modal({ title, onClose, children }: { title: string; onClose: () => voi
       className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4"
       onClick={onClose}>
       <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }}
-        className="bg-white rounded-2xl p-6 w-full max-w-md shadow-2xl"
+        className="bg-white dark:bg-[#1e1e1e] dark:text-gray-100 rounded-2xl p-6 w-full max-w-md shadow-2xl"
         onClick={e => e.stopPropagation()}>
         <h3 className="text-base font-semibold mb-4">{title}</h3>
         {children}

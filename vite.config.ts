@@ -1,24 +1,23 @@
 import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
+import { config } from 'dotenv';
 import path from 'path';
-import {defineConfig, loadEnv} from 'vite';
+import { defineConfig } from 'vite';
 
-export default defineConfig(({mode}) => {
-  const env = loadEnv(mode, '.', '');
-  return {
-    plugins: [react(), tailwindcss()],
-    define: {
-      'process.env.GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY),
-    },
-    resolve: {
-      alias: {
-        '@': path.resolve(__dirname, '.'),
-      },
-    },
-    server: {
-      // HMR is disabled in AI Studio via DISABLE_HMR env var.
-      // Do not modifyâfile watching is disabled to prevent flickering during agent edits.
-      hmr: process.env.DISABLE_HMR !== 'true',
-    },
-  };
-});
+// Load .env.example so API keys are available at build/dev time
+config({ path: '.env.example' });
+
+export default defineConfig(() => ({
+  plugins: [react(), tailwindcss()],
+  define: {
+    // Bake the OpenAI key into the frontend bundle (safe for personal/demo use)
+    'process.env.OPENAI_API_KEY': JSON.stringify(process.env.OPENAI_API_KEY ?? ''),
+  },
+  resolve: {
+    alias: { '@': path.resolve(__dirname, '.') },
+  },
+  server: {
+    hmr: process.env.DISABLE_HMR !== 'true',
+    proxy: { '/api': 'http://localhost:3001' },
+  },
+}));
