@@ -5,6 +5,7 @@ import Database   from 'better-sqlite3';
 
 import { config } from 'dotenv';
 import path       from 'path';
+import fs         from 'fs';
 import { fileURLToPath } from 'url';
 import crypto     from 'crypto';
 
@@ -57,7 +58,10 @@ async function getUserId(req: express.Request): Promise<string | null> {
 
 // ─── Database (SQLite) ──────────────────────────────────────────────────────
 
-const db = new Database(path.join(__dirname, 'data', 'proreceipt.db'));
+const DATA_DIR = path.join(__dirname, 'data');
+if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+
+const db = new Database(path.join(DATA_DIR, 'proreceipt.db'));
 db.pragma('journal_mode = WAL');
 
 db.exec(`
