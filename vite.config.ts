@@ -9,6 +9,9 @@ config({ path: '.env.example' });
 
 export default defineConfig(() => ({
   plugins: [react(), tailwindcss()],
+  define: {
+    'process.env.OPENAI_API_KEY': JSON.stringify(process.env.OPENAI_API_KEY ?? ''),
+  },
   resolve: {
     alias: { '@': path.resolve(__dirname, '.') },
   },
