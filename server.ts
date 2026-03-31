@@ -308,6 +308,41 @@ app.post('/api/ai-chat', async (req, res) => {
   }
 });
 
+// ─── POST /api/ai-classify ───────────────────────────────────────────────────
+// Ultra-fast intent check: is the user's message about receipt work?
+// Returns { isReceiptRelated: boolean }. Runs in parallel with /ai-chat so
+// the frontend knows whether to show the "building" animation in preview.
+
+app.post('/api/ai-classify', async (req, res) => {
+  const { message } = req.body ?? {};
+  const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
+  if (!OPENAI_API_KEY || !message) { res.json({ isReceiptRelated: false }); return; }
+
+  try {
+    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${OPENAI_API_KEY}`,
+      },
+      body: JSON.stringify({
+        model: 'gpt-4o-mini',
+        temperature: 0,
+        max_tokens: 3,
+        messages: [
+          { role: 'system', content: 'Reply ONLY "yes" or "no". Is this message asking to create, modify, or discuss a receipt, invoice, or bill? (Includes requests about layout, colors, items, prices, business details, formatting, etc.)' },
+          { role: 'user', content: message },
+        ],
+      }),
+    });
+    const data = await response.json() as any;
+    const reply = (data.choices?.[0]?.message?.content ?? '').trim().toLowerCase();
+    res.json({ isReceiptRelated: reply.startsWith('yes') });
+  } catch {
+    res.json({ isReceiptRelated: false });
+  }
+});
+
 // ─── Chat CRUD ──────────────────────────────────────────────────────────────
 
 // GET /api/chats — list all chats for the authenticated user (summary only)

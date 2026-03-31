@@ -13,6 +13,7 @@ import {
   FolderOpen, Palette, CheckCircle2, User, Tag,
   Mail, Loader2, Sparkles, Send, Moon, Sun,
   MessageSquare, PanelLeftClose, PanelLeftOpen, LogIn, SquarePen, X, Pencil, Check,
+  Paperclip, ImageIcon,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { SignInButton, UserButton } from '@clerk/clerk-react';
@@ -1085,6 +1086,14 @@ const AI_LOADING_MSGS = [
   'Just a moment more...',
 ];
 
+const AI_SUGGESTIONS = [
+  { icon: '☕', label: 'Coffee shop receipt', prompt: 'Create a receipt for my coffee shop — 2 lattes, 1 cappuccino and 3 muffins, paid by card' },
+  { icon: '💻', label: 'Freelance invoice',   prompt: 'Make a professional invoice for web design services, $2,500 total, net 30 days' },
+  { icon: '🍽️', label: 'Restaurant bill',     prompt: 'Generate a stylish receipt for a dinner for 4 at a fancy Italian restaurant' },
+  { icon: '🏢', label: 'Business invoice',    prompt: 'Design a modern corporate invoice for software development consulting services' },
+];
+
+
 
 function AIStudio({ receiptHtml, setReceiptHtml, messages, setMessages, currentChatId, setCurrentChatId, dark, showToast }: {
   receiptHtml: string;
@@ -1101,14 +1110,40 @@ function AIStudio({ receiptHtml, setReceiptHtml, messages, setMessages, currentC
   const [isLoading, setIsLoading]         = useState(false);
   const [loadingStep, setLoadingStep]     = useState(0);
   const [isDownloading, setIsDownloading]   = useState(false);
-  const [sidebarOpen, setSidebarOpen]       = useState(false);
+  const [sidebarOpen, setSidebarOpen]         = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobilePanel, setMobilePanel]       = useState<'chat' | 'preview'>('chat');
-  const [renamingId, setRenamingId]         = useState<string | null>(null);
-  const [renameValue, setRenameValue]       = useState('');
+  const [renamingId, setRenamingId]             = useState<string | null>(null);
+  const [renameValue, setRenameValue]           = useState('');
+  const [attachedFiles, setAttachedFiles]       = useState<Array<{ id: string; file: File; type: 'image' | 'text'; preview?: string; content?: string }>>([]);
+  const [isDragOver, setIsDragOver]             = useState(false);
+  const [showAttachMenu, setShowAttachMenu]     = useState(false);
+  const [pendingReceiptGen, setPendingReceiptGen] = useState(false);
   // localStorage is the source of truth — works without server or sign-in
   const [chats, setChats] = useState<ChatEntry[]>(() => readLocalChats());
   const scrollRef      = useRef<HTMLDivElement>(null);
   const renameInputRef = useRef<HTMLInputElement>(null);
+  const fileInputRef   = useRef<HTMLInputElement>(null);
+  const dragCounter    = useRef(0);
+
+  // ── Process dropped / selected files ──
+  const processFiles = useCallback((files: FileList | File[]) => {
+    Array.from(files).forEach(file => {
+      const id = crypto.randomUUID();
+      const isImage = file.type.startsWith('image/');
+      const reader = new FileReader();
+      reader.onload = e => {
+        const result = e.target?.result as string;
+        setAttachedFiles(prev => [
+          ...prev,
+          isImage
+            ? { id, file, type: 'image' as const, preview: result }
+            : { id, file, type: 'text'  as const, content: result },
+        ]);
+      };
+      if (isImage) reader.readAsDataURL(file); else reader.readAsText(file);
+    });
+  }, []);
 
   // ── Persist a chat to localStorage (and server if signed in) ──
   const persistChat = useCallback(async (
@@ -1258,14 +1293,49 @@ function AIStudio({ receiptHtml, setReceiptHtml, messages, setMessages, currentC
   // ── Send message ──
   const send = async () => {
     const text = input.trim();
-    if (!text || isLoading) return;
+    if ((!text && attachedFiles.length === 0) || isLoading) return;
+
     setInput('');
-    const next: AiMessage[] = [...messages, { role: 'user', content: text }];
+    setShowAttachMenu(false);
+
+    // Ask the AI to classify whether this is receipt-related (drives preview animation)
+    // Fire-and-forget: updates pendingReceiptGen when result arrives
+    fetch(`${API_URL}/api/ai-classify`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message: text || '(file uploaded)' }),
+    })
+      .then(r => r.json())
+      .then((d: any) => { if (d.isReceiptRelated) setPendingReceiptGen(true); })
+      .catch(() => {});
+
+    // Build text — append any text-file contents
+    const textContent = [
+      text,
+      ...attachedFiles.filter(f => f.type === 'text' && f.content)
+        .map(f => `\n\n[Attached: ${f.file.name}]\n${f.content}`),
+    ].join('').trim();
+
+    // Build the display message (no base64 in history)
+    const displayText = text + (attachedFiles.length > 0 ? ` [+${attachedFiles.length} file${attachedFiles.length > 1 ? 's' : ''}]` : '');
+    const userMsg: AiMessage = { role: 'user', content: displayText || '(file uploaded)' };
+
+    // Build the API content (images go as vision blocks)
+    const imageFiles = attachedFiles.filter(f => f.type === 'image' && f.preview);
+    const apiContent: any = imageFiles.length > 0
+      ? [
+          { type: 'text', text: textContent || 'Use these images to help create the receipt.' },
+          ...imageFiles.map(f => ({ type: 'image_url', image_url: { url: f.preview! } })),
+        ]
+      : textContent;
+
+    setAttachedFiles([]);
+
+    const next: AiMessage[] = [...messages, userMsg];
     setMessages(next);
     setIsLoading(true);
     setLoadingStep(0);
 
-    // Ensure we have a stable ID for this conversation from the very first message
     const chatId = currentChatId ?? (() => {
       const id = crypto.randomUUID();
       setCurrentChatId(id);
@@ -1273,15 +1343,16 @@ function AIStudio({ receiptHtml, setReceiptHtml, messages, setMessages, currentC
     })();
 
     try {
+      // Previous turns as plain text; last user turn may have vision content
+      const apiMessages = [
+        ...next.slice(1, -1).map(m => ({ role: m.role === 'user' ? 'user' : 'assistant', content: m.content })),
+        { role: 'user', content: apiContent },
+      ];
+
       const res = await fetch(`${API_URL}/api/ai-chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          messages: next.slice(1).map(m => ({
-            role: m.role === 'user' ? 'user' : 'assistant',
-            content: m.content,
-          })),
-        }),
+        body: JSON.stringify({ messages: apiMessages }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? `API error ${res.status}`);
@@ -1292,20 +1363,18 @@ function AIStudio({ receiptHtml, setReceiptHtml, messages, setMessages, currentC
       if (htmlMatch) {
         newHtml = htmlMatch[1].trim();
         setReceiptHtml(newHtml);
-        // Auto-switch to preview on mobile when receipt is ready
         if (window.innerWidth < 1024) setMobilePanel('preview');
       }
 
       const finalMessages = [...next, { role: 'ai' as const, content: fullReply }];
       setMessages(finalMessages);
-
-      // Save to localStorage (and server if signed in) after AI responds
       persistChat(chatId, finalMessages, newHtml);
     } catch (err: any) {
       const errMessages = [...next, { role: 'ai' as const, content: `Something went wrong: ${err.message}` }];
       setMessages(errMessages);
     } finally {
       setIsLoading(false);
+      setPendingReceiptGen(false);
     }
   };
 
@@ -1314,26 +1383,38 @@ function AIStudio({ receiptHtml, setReceiptHtml, messages, setMessages, currentC
     if (!receiptHtml) return;
     setIsDownloading(true);
     try {
-      const res = await fetch(`${API_URL}/api/generate-pdf`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ html: receiptHtml }),
+      // Render the receipt from the live preview iframe — no server needed
+      const iframe = document.querySelector('iframe[title="AI Receipt Preview"]') as HTMLIFrameElement | null;
+      const root = iframe?.contentDocument?.body ?? iframe?.contentDocument?.documentElement;
+      if (!root) throw new Error('Preview not ready — please wait for the receipt to load');
+
+      const html2canvas = (await import('html2canvas')).default;
+      const { jsPDF } = await import('jspdf');
+
+      const el = root as HTMLElement;
+      const canvas = await html2canvas(el, {
+        scale: 2,
+        useCORS: true,
+        backgroundColor: '#ffffff',
+        logging: false,
+        // Capture full scrollable content, not just the visible area
+        width:        el.scrollWidth,
+        height:       el.scrollHeight,
+        windowWidth:  el.scrollWidth,
+        windowHeight: el.scrollHeight,
+        scrollX: 0,
+        scrollY: 0,
       });
-      if (!res.ok) {
-        let errMsg = 'PDF generation failed';
-        try { const j = await res.json(); errMsg = j.error || errMsg; } catch { /* ignore */ }
-        throw new Error(errMsg);
-      }
-      const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `receipt-ai-${Date.now()}.pdf`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      setTimeout(() => URL.revokeObjectURL(url), 100);
-      showToast('PDF downloaded successfully!', 'ok');
+
+      const imgData = canvas.toDataURL('image/png');
+      // Page size matches the receipt exactly — no cropping, no multi-page
+      const pxToMm  = 25.4 / 96; // 96 dpi → mm
+      const pageW   = (canvas.width  / 2) * pxToMm; // divide by scale (2)
+      const pageH   = (canvas.height / 2) * pxToMm;
+      const pdf     = new jsPDF({ orientation: 'portrait', unit: 'mm', format: [pageW, pageH] });
+      pdf.addImage(imgData, 'PNG', 0, 0, pageW, pageH);
+      pdf.save(`receipt-ai-${Date.now()}.pdf`);
+      showToast('PDF downloaded!', 'ok');
     } catch (err: any) {
       showToast(err.message || 'Failed to download PDF', 'err');
     } finally {
@@ -1371,9 +1452,10 @@ function AIStudio({ receiptHtml, setReceiptHtml, messages, setMessages, currentC
       {/* Sidebar panel */}
       <div className={`
         fixed lg:relative inset-y-0 left-0 z-50 lg:z-auto
-        w-64 shrink-0 flex flex-col border-r transition-transform duration-200
+        w-64 shrink-0 flex flex-col border-r transition-all duration-300 overflow-hidden
         ${sidebarBg} ${dark ? 'border-white/10' : 'border-gray-200'}
-        ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'} lg:translate-x-0
+        ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}
+        ${sidebarCollapsed ? 'lg:w-0 lg:border-r-0' : 'lg:w-64'} lg:translate-x-0
       `}>
         {/* Sidebar header */}
         <div className={`shrink-0 flex items-center justify-between px-4 py-4 border-b ${headerBdr}`}>
@@ -1383,6 +1465,9 @@ function AIStudio({ receiptHtml, setReceiptHtml, messages, setMessages, currentC
           </button>
           <button onClick={() => setSidebarOpen(false)} className={`lg:hidden ml-2 p-1.5 rounded-lg ${dark ? 'hover:bg-white/10 text-gray-400' : 'hover:bg-gray-200 text-gray-500'}`}>
             <X className="w-4 h-4" />
+          </button>
+          <button onClick={() => setSidebarCollapsed(true)} className={`hidden lg:block ml-2 p-1.5 rounded-lg ${dark ? 'hover:bg-white/10 text-gray-400' : 'hover:bg-gray-200 text-gray-500'}`}>
+            <PanelLeftClose className="w-4 h-4" />
           </button>
         </div>
 
@@ -1498,8 +1583,8 @@ function AIStudio({ receiptHtml, setReceiptHtml, messages, setMessages, currentC
           <div className={`${mobilePanel === 'chat' ? 'flex' : 'hidden'} lg:flex flex-1 flex-col rounded-2xl shadow-sm border min-h-0 min-w-0 ${cardBg}`}>
             {/* Chat header */}
             <div className={`shrink-0 flex items-center gap-2.5 px-4 sm:px-5 py-3 sm:py-4 border-b ${headerBdr}`}>
-              <button onClick={() => setSidebarOpen(true)}
-                className={`lg:hidden p-1.5 -ml-1 rounded-lg ${dark ? 'hover:bg-white/10 text-gray-400' : 'hover:bg-gray-100 text-gray-500'}`}>
+              <button onClick={() => window.innerWidth >= 1024 ? setSidebarCollapsed(false) : setSidebarOpen(true)}
+                className={`${sidebarCollapsed ? '' : 'lg:hidden'} p-1.5 -ml-1 rounded-lg ${dark ? 'hover:bg-white/10 text-gray-400' : 'hover:bg-gray-100 text-gray-500'}`}>
                 <PanelLeftOpen className="w-4 h-4" />
               </button>
               <div className="w-8 h-8 rounded-lg bg-linear-to-br from-indigo-600 to-purple-600 flex items-center justify-center shrink-0">
@@ -1512,7 +1597,26 @@ function AIStudio({ receiptHtml, setReceiptHtml, messages, setMessages, currentC
             </div>
 
             {/* Messages */}
-            <div className="flex-1 min-h-0 overflow-y-auto px-4 py-4">
+            <div
+              className={`flex-1 min-h-0 overflow-y-auto px-4 py-4 relative transition-colors duration-150 ${isDragOver ? (dark ? 'bg-indigo-500/5' : 'bg-indigo-50/60') : ''}`}
+              onDragEnter={e => { e.preventDefault(); dragCounter.current++; setIsDragOver(true); }}
+              onDragOver={e => e.preventDefault()}
+              onDragLeave={() => { dragCounter.current--; if (dragCounter.current === 0) setIsDragOver(false); }}
+              onDrop={e => { e.preventDefault(); dragCounter.current = 0; setIsDragOver(false); if (e.dataTransfer.files.length) processFiles(e.dataTransfer.files); }}
+            >
+              {/* Drag-over overlay */}
+              <AnimatePresence>
+                {isDragOver && (
+                  <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+                    className="absolute inset-2 rounded-xl border-2 border-dashed border-indigo-400 flex items-center justify-center z-20 pointer-events-none bg-indigo-500/5">
+                    <div className="text-center">
+                      <Paperclip className={`w-8 h-8 mx-auto mb-2 ${dark ? 'text-indigo-400' : 'text-indigo-500'}`} />
+                      <p className={`text-sm font-medium ${dark ? 'text-indigo-300' : 'text-indigo-600'}`}>Drop files here</p>
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+
               <div className="space-y-3">
                 {messages.map((msg, i) => (
                   <motion.div key={i} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }}
@@ -1568,20 +1672,89 @@ function AIStudio({ receiptHtml, setReceiptHtml, messages, setMessages, currentC
                     </div>
                   </motion.div>
                 )}
+                {/* Suggestion chips — first load only */}
+                {messages.length === 1 && !isLoading && (
+                  <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
+                    className="grid grid-cols-2 gap-2 mt-4">
+                    {AI_SUGGESTIONS.map(s => (
+                      <button key={s.label} onClick={() => setInput(s.prompt)}
+                        className={`text-left px-3 py-3 rounded-xl border transition-all hover:-translate-y-0.5 active:translate-y-0 ${
+                          dark ? 'border-white/10 hover:bg-white/5 text-gray-300' : 'border-gray-200 hover:bg-gray-50 text-gray-600'
+                        }`}>
+                        <span className="text-lg">{s.icon}</span>
+                        <p className="mt-1.5 text-xs font-medium leading-tight">{s.label}</p>
+                        <p className={`mt-0.5 text-[10px] leading-tight line-clamp-1 ${dark ? 'text-gray-500' : 'text-gray-400'}`}>{s.prompt}</p>
+                      </button>
+                    ))}
+                  </motion.div>
+                )}
+
                 <div ref={scrollRef} />
               </div>
             </div>
 
             {/* Input */}
-            <div className={`shrink-0 border-t px-4 py-3 ${headerBdr}`}>
-              <div className="flex gap-2">
+            <div className={`shrink-0 border-t ${headerBdr}`}>
+              {/* Attached file chips */}
+              <AnimatePresence>
+                {attachedFiles.length > 0 && (
+                  <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }}
+                    className="flex flex-wrap gap-2 px-4 pt-3">
+                    {attachedFiles.map(f => (
+                      <motion.div key={f.id} initial={{ opacity: 0, scale: 0.8 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.8 }}
+                        className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs border ${dark ? 'bg-white/5 border-white/10 text-gray-200' : 'bg-gray-50 border-gray-200 text-gray-700'}`}>
+                        {f.type === 'image' && f.preview
+                          ? <img src={f.preview} className="w-5 h-5 rounded object-cover" alt="" />
+                          : <FileText className="w-3.5 h-3.5 text-purple-400 shrink-0" />}
+                        <span className="max-w-[90px] truncate">{f.file.name}</span>
+                        <button onClick={() => setAttachedFiles(prev => prev.filter(a => a.id !== f.id))}
+                          className="ml-0.5 hover:text-red-500 transition-colors"><X className="w-3 h-3" /></button>
+                      </motion.div>
+                    ))}
+                  </motion.div>
+                )}
+              </AnimatePresence>
+
+              <div className="flex gap-2 px-4 py-3">
+                {/* Plus / attach button */}
+                <div className="relative shrink-0">
+                  {showAttachMenu && <div className="fixed inset-0 z-30" onClick={() => setShowAttachMenu(false)} />}
+                  <button
+                    onClick={e => { e.stopPropagation(); setShowAttachMenu(v => !v); }}
+                    className={`p-2.5 rounded-xl transition-all duration-200 ${showAttachMenu ? 'bg-indigo-600 text-white' : dark ? 'bg-white/5 text-gray-400 hover:bg-white/10' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}>
+                    <motion.div animate={{ rotate: showAttachMenu ? 45 : 0 }} transition={{ duration: 0.2 }}>
+                      <Plus className="w-4 h-4" />
+                    </motion.div>
+                  </button>
+
+                  <AnimatePresence>
+                    {showAttachMenu && (
+                      <motion.div initial={{ opacity: 0, scale: 0.9, y: 8 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.9, y: 8 }}
+                        transition={{ duration: 0.15 }} onClick={e => e.stopPropagation()}
+                        className={`absolute bottom-full left-0 mb-2 rounded-xl shadow-xl border overflow-hidden z-40 min-w-[160px] ${dark ? 'bg-[#1e1e1e] border-white/10' : 'bg-white border-gray-100'}`}>
+                        <button onClick={() => { fileInputRef.current!.accept = 'image/*'; fileInputRef.current!.click(); setShowAttachMenu(false); }}
+                          className={`flex items-center gap-2.5 px-4 py-3 text-sm w-full text-left transition-colors ${dark ? 'hover:bg-white/5 text-gray-200' : 'hover:bg-gray-50 text-gray-700'}`}>
+                          <ImageIcon className="w-4 h-4 text-indigo-400" /> Upload Image
+                        </button>
+                        <button onClick={() => { fileInputRef.current!.accept = '.txt,.md,.csv,.json'; fileInputRef.current!.click(); setShowAttachMenu(false); }}
+                          className={`flex items-center gap-2.5 px-4 py-3 text-sm w-full text-left transition-colors border-t ${dark ? 'hover:bg-white/5 text-gray-200 border-white/5' : 'hover:bg-gray-50 text-gray-700 border-gray-50'}`}>
+                          <FileText className="w-4 h-4 text-purple-400" /> Upload File
+                        </button>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+
+                  <input ref={fileInputRef} type="file" multiple className="hidden"
+                    onChange={e => { if (e.target.files?.length) processFiles(e.target.files); e.target.value = ''; }} />
+                </div>
+
                 <input value={input} onChange={e => setInput(e.target.value)}
                   onKeyDown={e => e.key === 'Enter' && !e.shiftKey && send()}
                   placeholder={receiptHtml ? 'Describe changes...' : 'Describe your receipt...'}
                   disabled={isLoading}
                   className={`flex-1 rounded-xl px-4 py-2.5 text-sm outline-none transition-colors disabled:opacity-40 border ${inputBg}`}
                   autoFocus />
-                <button onClick={send} disabled={!input.trim() || isLoading}
+                <button onClick={send} disabled={(!input.trim() && attachedFiles.length === 0) || isLoading}
                   className="px-4 py-2.5 bg-indigo-600 text-white rounded-xl text-sm font-medium hover:bg-indigo-500 transition-colors disabled:opacity-30 disabled:cursor-not-allowed shrink-0">
                   <Send className="w-4 h-4" />
                 </button>
@@ -1605,7 +1778,117 @@ function AIStudio({ receiptHtml, setReceiptHtml, messages, setMessages, currentC
               )}
             </div>
             <div className="flex-1 min-h-0 overflow-hidden">
-              {receiptHtml ? (
+              {isLoading && pendingReceiptGen ? (
+                /* ── "Building receipt" animation ── */
+                <div className="flex flex-col items-center justify-center h-full p-6">
+                  <div className="relative">
+                    {/* Ambient glow */}
+                    <motion.div
+                      className={`absolute -inset-6 rounded-3xl blur-2xl ${dark ? 'bg-indigo-500/10' : 'bg-indigo-400/15'}`}
+                      animate={{ opacity: [0.3, 0.7, 0.3], scale: [0.95, 1.05, 0.95] }}
+                      transition={{ duration: 3, repeat: Infinity, ease: 'easeInOut' }}
+                    />
+
+                    {/* Receipt construction card */}
+                    <motion.div
+                      className={`relative w-52 rounded-2xl p-5 overflow-hidden shadow-2xl ${
+                        dark
+                          ? 'bg-[#1a1a2e] border border-indigo-500/30 shadow-indigo-500/10'
+                          : 'bg-white border border-indigo-100 shadow-indigo-200/30'
+                      }`}
+                      initial={{ opacity: 0, y: 20 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ duration: 0.4 }}
+                    >
+                      {/* Scanning beam */}
+                      <motion.div
+                        className="absolute left-0 right-0 h-10 bg-gradient-to-b from-indigo-500/15 via-indigo-500/5 to-transparent pointer-events-none z-10"
+                        animate={{ top: ['-40px', 'calc(100% + 40px)'] }}
+                        transition={{ duration: 2, repeat: Infinity, ease: 'linear' }}
+                      />
+
+                      <div className="space-y-3">
+                        {/* Logo placeholder */}
+                        <div className="flex justify-center">
+                          <motion.div
+                            className={`w-12 h-12 rounded-lg ${dark ? 'bg-indigo-500/20' : 'bg-indigo-100'}`}
+                            animate={{ opacity: [0.3, 0.8, 0.3] }}
+                            transition={{ duration: 2, repeat: Infinity }}
+                          />
+                        </div>
+                        {/* Business name */}
+                        <motion.div className={`h-3 w-3/5 mx-auto rounded ${dark ? 'bg-indigo-400/30' : 'bg-indigo-200'}`}
+                          animate={{ opacity: [0.2, 0.7, 0.2] }} transition={{ duration: 2, repeat: Infinity, delay: 0.1 }} />
+                        {/* Address */}
+                        <motion.div className={`h-1.5 w-2/5 mx-auto rounded ${dark ? 'bg-white/10' : 'bg-gray-200'}`}
+                          animate={{ opacity: [0.2, 0.5, 0.2] }} transition={{ duration: 2, repeat: Infinity, delay: 0.2 }} />
+
+                        {/* Divider */}
+                        <motion.div className={`h-px ${dark ? 'bg-white/10' : 'bg-gray-200'}`}
+                          initial={{ scaleX: 0 }} animate={{ scaleX: 1 }}
+                          transition={{ duration: 0.8, delay: 0.3 }} />
+
+                        {/* Item rows */}
+                        {[0.85, 0.7, 0.9].map((w, i) => (
+                          <div key={i} className="flex justify-between items-center">
+                            <motion.div
+                              className={`h-2 rounded ${dark ? 'bg-white/10' : 'bg-gray-200'}`}
+                              style={{ width: `${w * 60}%` }}
+                              animate={{ opacity: [0.15, 0.6, 0.15] }}
+                              transition={{ duration: 2, repeat: Infinity, delay: 0.4 + i * 0.15 }}
+                            />
+                            <motion.div
+                              className={`h-2 w-8 rounded ${dark ? 'bg-white/10' : 'bg-gray-200'}`}
+                              animate={{ opacity: [0.15, 0.6, 0.15] }}
+                              transition={{ duration: 2, repeat: Infinity, delay: 0.5 + i * 0.15 }}
+                            />
+                          </div>
+                        ))}
+
+                        {/* Divider */}
+                        <motion.div className={`h-px ${dark ? 'bg-white/10' : 'bg-gray-200'}`}
+                          initial={{ scaleX: 0 }} animate={{ scaleX: 1 }}
+                          transition={{ duration: 0.8, delay: 1 }} />
+
+                        {/* Total */}
+                        <div className="flex justify-between items-center pt-1">
+                          <motion.div className={`h-2 w-10 rounded ${dark ? 'bg-white/10' : 'bg-gray-200'}`}
+                            animate={{ opacity: [0.3, 0.7, 0.3] }} transition={{ duration: 2, repeat: Infinity, delay: 1.2 }} />
+                          <motion.div className={`h-4 w-16 rounded ${dark ? 'bg-indigo-400/30' : 'bg-indigo-200'}`}
+                            animate={{ opacity: [0.3, 1, 0.3] }} transition={{ duration: 1.5, repeat: Infinity, delay: 1.3 }} />
+                        </div>
+                      </div>
+
+                      {/* Typing cursor */}
+                      <motion.div
+                        className="mt-3 w-1.5 h-4 rounded-sm bg-indigo-500"
+                        animate={{ opacity: [1, 0] }}
+                        transition={{ duration: 0.6, repeat: Infinity }}
+                      />
+                    </motion.div>
+                  </div>
+
+                  {/* Status text */}
+                  <div className="mt-8 text-center space-y-2">
+                    <div className="flex items-center justify-center gap-2">
+                      <Loader2 className="w-4 h-4 text-indigo-500 animate-spin" />
+                      <AnimatePresence mode="wait">
+                        <motion.span
+                          key={loadingStep}
+                          initial={{ opacity: 0, y: 8 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          exit={{ opacity: 0, y: -8 }}
+                          className={`text-sm font-medium ${dark ? 'text-gray-300' : 'text-gray-600'}`}
+                        >
+                          {AI_LOADING_MSGS[loadingStep]}
+                        </motion.span>
+                      </AnimatePresence>
+                    </div>
+                    <p className={`text-xs ${dark ? 'text-gray-600' : 'text-gray-400'}`}>Designing your receipt...</p>
+                  </div>
+                </div>
+
+              ) : receiptHtml ? (
                 <iframe srcDoc={receiptHtml} title="AI Receipt Preview" className="w-full h-full border-0" sandbox="allow-same-origin" />
               ) : (
                 <div className="flex flex-col items-center justify-center h-full gap-5 p-8">
