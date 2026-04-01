@@ -1228,7 +1228,10 @@ function AIStudio({ receiptHtml, setReceiptHtml, messages, setMessages, currentC
   // localStorage is the source of truth — works without server or sign-in
   const [chats, setChats] = useState<ChatEntry[]>(() => readLocalChats());
   const scrollRef       = useRef<HTMLDivElement>(null);
-  const prevMsgCountRef = useRef(0);
+  const prevMsgCountRef   = useRef(0);
+  const [splitRatio, setSplitRatio]     = useState(0.5); // chat % of total width
+  const splitContainerRef = useRef<HTMLDivElement>(null);
+  const isDraggingRef     = useRef(false);
   const renameInputRef  = useRef<HTMLInputElement>(null);
   const fileInputRef    = useRef<HTMLInputElement>(null);
   const dragCounter     = useRef(0);
@@ -1386,6 +1389,30 @@ function AIStudio({ receiptHtml, setReceiptHtml, messages, setMessages, currentC
       setChats(merged);
     })();
   }, [auth.isSignedIn]);
+
+  // ── Auto-shrink chat panel when a receipt first appears ──
+  useEffect(() => {
+    if (receiptHtml && splitRatio > 0.45) setSplitRatio(0.38);
+  }, [receiptHtml]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Panel drag-to-resize ──
+  const startPanelDrag = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    isDraggingRef.current = true;
+    const onMove = (ev: MouseEvent) => {
+      if (!isDraggingRef.current || !splitContainerRef.current) return;
+      const rect = splitContainerRef.current.getBoundingClientRect();
+      const ratio = Math.min(0.75, Math.max(0.25, (ev.clientX - rect.left) / rect.width));
+      setSplitRatio(ratio);
+    };
+    const onUp = () => {
+      isDraggingRef.current = false;
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+    };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  }, []);
 
   // ── Auto-scroll — only fires when a new message is added, not on isLoading toggles ──
   useEffect(() => {
@@ -1741,15 +1768,12 @@ function AIStudio({ receiptHtml, setReceiptHtml, messages, setMessages, currentC
           </button>
         </div>
 
-        <div className="flex-1 flex lg:flex-row min-h-0 gap-0 lg:gap-4 p-2 sm:p-4 overflow-hidden">
+        <div ref={splitContainerRef} className="flex-1 flex lg:flex-row min-h-0 gap-0 p-2 sm:p-4 overflow-hidden">
 
-          {/* Chat panel — shrinks when a receipt is live so the preview gets more room */}
+          {/* Chat panel */}
           <div
-            style={{
-              maxWidth: receiptHtml ? '38%' : '100%',
-              transition: 'max-width 0.45s cubic-bezier(0.4, 0, 0.2, 1)',
-            }}
-            className={`${mobilePanel === 'chat' ? 'flex' : 'hidden'} lg:flex flex-1 flex-col rounded-xl border min-h-0 min-w-0 relative ${cardBg}`}>
+            style={{ width: `${splitRatio * 100}%`, transition: isDraggingRef.current ? 'none' : 'width 0.45s cubic-bezier(0.4,0,0.2,1)' }}
+            className={`${mobilePanel === 'chat' ? 'flex' : 'hidden'} lg:flex flex-col rounded-xl border min-h-0 min-w-0 relative shrink-0 ${cardBg}`}>
             {/* Chat header */}
             <div className={`shrink-0 flex items-center gap-2.5 px-4 py-3 border-b ${headerBdr}`}>
               <button onClick={() => window.innerWidth >= 1024 ? setSidebarCollapsed(false) : setSidebarOpen(true)}
@@ -1975,6 +1999,14 @@ function AIStudio({ receiptHtml, setReceiptHtml, messages, setMessages, currentC
                 </button>
               </div>
             </div>
+          </div>
+
+          {/* Drag handle — desktop only */}
+          <div
+            onMouseDown={startPanelDrag}
+            className={`hidden lg:flex items-center justify-center w-3 shrink-0 cursor-col-resize group mx-0.5`}
+          >
+            <div className={`w-0.5 h-8 rounded-full transition-colors group-hover:bg-[#5E6AD2]/60 group-active:bg-[#5E6AD2] ${dark ? 'bg-white/10' : 'bg-black/10'}`} />
           </div>
 
           {/* Preview panel */}
