@@ -149,9 +149,9 @@ const INITIAL_DATA: ReceiptData = {
 
 // ─── Shared style tokens ──────────────────────────────────────────────────────
 
-export const inp = "w-full px-4 py-2 bg-gray-50 border border-transparent rounded-xl focus:bg-white focus:border-black/10 outline-none transition-all text-sm text-black";
-const btnOutlineLight = "flex items-center gap-2 bg-white text-black border border-black/10 px-3 py-2 rounded-full text-sm font-medium hover:bg-gray-50 transition-all";
-const btnOutlineDark  = "flex items-center gap-2 bg-white/10 text-gray-200 border border-white/10 px-3 py-2 rounded-full text-sm font-medium hover:bg-white/15 transition-all";
+export const inp = "w-full px-3.5 py-2 bg-[#f4f4f5] border border-transparent rounded-lg focus:bg-white focus:border-black/10 outline-none transition-all text-sm text-[#0d0d0e]";
+const btnOutlineLight = "flex items-center gap-1.5 bg-white text-[#3d3d3f] border border-black/[0.08] px-3 py-1.5 rounded-md text-sm font-medium hover:bg-[#f4f4f5] transition-all";
+const btnOutlineDark  = "flex items-center gap-1.5 bg-white/[0.06] text-[#c7c7c8] border border-white/[0.08] px-3 py-1.5 rounded-md text-sm font-medium hover:bg-white/[0.1] transition-all";
 
 const STORAGE_KEY      = 'proreceipt_saved';
 const LOCAL_CHATS_KEY  = 'proreceipt_ai_chats';
@@ -351,44 +351,44 @@ export default function App() {
       </AnimatePresence>
 
       {/* Header */}
-      <header className={`shrink-0 z-50 backdrop-blur-md border-b px-4 sm:px-6 py-3 sm:py-4 flex justify-between items-center no-print transition-colors duration-300 ${dark ? 'bg-[#1e1e1e]/90 border-white/10' : 'bg-white/90 border-black/5'}`}>
+      <header className={`shrink-0 z-50 border-b px-4 sm:px-6 py-2.5 flex justify-between items-center no-print transition-colors duration-300 ${dark ? 'bg-[#0d0d0e] border-white/[0.06]' : 'bg-white border-black/[0.06]'}`}>
         <div className="flex items-center gap-2 sm:gap-3">
-          <div className="w-8 h-8 bg-[#1A1A1A] rounded-lg flex items-center justify-center shrink-0">
-            <Receipt className="text-white w-5 h-5" />
+          <div className={`w-7 h-7 rounded-md flex items-center justify-center shrink-0 ${dark ? 'bg-white/[0.08]' : 'bg-[#0d0d0e]'}`}>
+            <Receipt className="text-white w-4 h-4" />
           </div>
-          <h1 className="text-base sm:text-lg font-semibold tracking-tight hidden sm:block">ProReceipt</h1>
+          <h1 className={`text-sm font-semibold tracking-[-0.01em] hidden sm:block ${dark ? 'text-[#ededef]' : 'text-[#0d0d0e]'}`}>ProReceipt</h1>
           {/* Mode toggle */}
-          <div className={`flex rounded-full p-0.5 text-xs sm:text-sm font-medium ${dark ? 'bg-white/10' : 'bg-gray-100'}`}>
+          <div className={`flex rounded-[6px] p-0.5 text-xs font-medium ${dark ? 'bg-white/[0.06]' : 'bg-[#f4f4f5]'}`}>
             <button onClick={() => setMode('manual')}
-              className={`px-3 py-1.5 rounded-full transition-all ${mode === 'manual' ? (dark ? 'bg-white/20 text-white shadow-sm' : 'bg-white text-black shadow-sm') : (dark ? 'text-gray-400 hover:text-gray-200' : 'text-gray-400 hover:text-gray-600')}`}>
+              className={`px-3 py-1.5 rounded-[4px] transition-all ${mode === 'manual' ? (dark ? 'bg-white/[0.1] text-[#ededef] shadow-sm' : 'bg-white text-[#0d0d0e] shadow-[0_1px_2px_rgba(0,0,0,0.08)]') : (dark ? 'text-[#5c5c63] hover:text-[#8b8b8e]' : 'text-[#9b9ba0] hover:text-[#5c5c63]')}`}>
               Manual
             </button>
             <button onClick={() => setMode('ai')}
-              className={`px-3 py-1.5 rounded-full transition-all flex items-center gap-1 ${mode === 'ai' ? (dark ? 'bg-white/20 text-white shadow-sm' : 'bg-white text-black shadow-sm') : (dark ? 'text-gray-400 hover:text-gray-200' : 'text-gray-400 hover:text-gray-600')}`}>
+              className={`px-3 py-1.5 rounded-[4px] transition-all flex items-center gap-1 ${mode === 'ai' ? (dark ? 'bg-white/[0.1] text-[#ededef] shadow-sm' : 'bg-white text-[#0d0d0e] shadow-[0_1px_2px_rgba(0,0,0,0.08)]') : (dark ? 'text-[#5c5c63] hover:text-[#8b8b8e]' : 'text-[#9b9ba0] hover:text-[#5c5c63]')}`}>
               <Sparkles className="w-3 h-3" /> AI Studio
             </button>
           </div>
         </div>
         {mode === 'manual' && (
-          <div className="flex items-center gap-1.5 sm:gap-2">
+          <div className="flex items-center gap-1.5">
             <button onClick={() => setShowLoadModal(true)} className={btnOutline}>
-              <FolderOpen className="w-4 h-4" /> <span className="hidden sm:inline">Load</span>
+              <FolderOpen className="w-3.5 h-3.5" /> <span className="hidden sm:inline">Load</span>
             </button>
             <button onClick={() => { setSaveName(`${data.businessName} – ${data.receiptNumber}`); setShowSaveModal(true); }} className={btnOutline}>
-              <Save className="w-4 h-4" /> <span className="hidden sm:inline">Save</span>
+              <Save className="w-3.5 h-3.5" /> <span className="hidden sm:inline">Save</span>
             </button>
             <button onClick={() => window.print()} className={btnOutline}>
-              <Printer className="w-4 h-4" /> <span className="hidden sm:inline">Print</span>
+              <Printer className="w-3.5 h-3.5" /> <span className="hidden sm:inline">Print</span>
             </button>
             <button onClick={handleSendEmail} disabled={isSending}
               className={`${btnOutline} disabled:opacity-50 disabled:cursor-not-allowed`}>
-              {isSending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Mail className="w-4 h-4" />}
+              {isSending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Mail className="w-3.5 h-3.5" />}
               <span className="hidden sm:inline">{isSending ? 'Sending…' : 'Email'}</span>
             </button>
             <button onClick={handleDownloadPDF} disabled={isGenerating}
-              className={`flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2 rounded-full text-sm font-medium transition-all disabled:opacity-50 disabled:cursor-not-allowed ${dark ? 'bg-indigo-600 text-white hover:bg-indigo-500' : 'bg-[#1A1A1A] text-white hover:bg-black'}`}>
-              {isGenerating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
-              <span className="hidden sm:inline">{isGenerating ? 'Generating…' : 'Download PDF'}</span>
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-all disabled:opacity-50 disabled:cursor-not-allowed ${dark ? 'bg-[#5E6AD2] text-white hover:bg-[#6B7AE8]' : 'bg-[#0d0d0e] text-white hover:bg-[#1a1a1d]'}`}>
+              {isGenerating ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
+              <span className="hidden sm:inline">{isGenerating ? 'Generating…' : 'Download'}</span>
             </button>
           </div>
         )}
@@ -396,16 +396,16 @@ export default function App() {
 
       {/* Mobile tab switcher — Manual mode only, below lg */}
       {mode === 'manual' && (
-        <div className={`lg:hidden shrink-0 flex border-b no-print transition-colors duration-300 ${dark ? 'bg-[#1e1e1e] border-white/10' : 'bg-white border-black/5'}`}>
+        <div className={`lg:hidden shrink-0 flex border-b no-print transition-colors duration-300 ${dark ? 'bg-[#0d0d0e] border-white/[0.06]' : 'bg-white border-black/[0.06]'}`}>
           <button
             onClick={() => setMobileTab('editor')}
-            className={`flex-1 py-2.5 text-sm font-medium transition-colors ${mobileTab === 'editor' ? (dark ? 'text-white border-b-2 border-white' : 'text-black border-b-2 border-black') : 'text-gray-400'}`}
+            className={`flex-1 py-2.5 text-xs font-medium tracking-wide uppercase transition-colors ${mobileTab === 'editor' ? (dark ? 'text-[#ededef] border-b-2 border-[#5E6AD2]' : 'text-[#0d0d0e] border-b-2 border-[#5E6AD2]') : (dark ? 'text-[#5c5c63]' : 'text-[#9b9ba0]')}`}
           >
             Editor
           </button>
           <button
             onClick={() => setMobileTab('preview')}
-            className={`flex-1 py-2.5 text-sm font-medium transition-colors ${mobileTab === 'preview' ? (dark ? 'text-white border-b-2 border-white' : 'text-black border-b-2 border-black') : 'text-gray-400'}`}
+            className={`flex-1 py-2.5 text-xs font-medium tracking-wide uppercase transition-colors ${mobileTab === 'preview' ? (dark ? 'text-[#ededef] border-b-2 border-[#5E6AD2]' : 'text-[#0d0d0e] border-b-2 border-[#5E6AD2]') : (dark ? 'text-[#5c5c63]' : 'text-[#9b9ba0]')}`}
           >
             Preview
           </button>
@@ -496,14 +496,15 @@ export default function App() {
         )}
       </AnimatePresence>
 
-      {/* Dark mode FAB */}
+      {/* Dark mode toggle */}
       <motion.button
         onClick={() => setDark(d => !d)}
-        className={`fixed bottom-6 right-6 z-50 w-12 h-12 rounded-full shadow-lg flex items-center justify-center no-print transition-colors duration-300 ${
-          dark ? 'bg-yellow-400 hover:bg-yellow-300 text-gray-900' : 'bg-[#1e1e2e] hover:bg-[#2a2a3e] text-yellow-300'
+        className={`fixed bottom-5 right-5 z-50 w-8 h-8 rounded-full flex items-center justify-center no-print transition-all duration-200 ${
+          dark
+            ? 'bg-white/[0.07] hover:bg-white/[0.12] text-[#8b8b8e] hover:text-[#c7c7c8] border border-white/[0.06]'
+            : 'bg-white hover:bg-[#f4f4f5] text-[#5c5c63] hover:text-[#3d3d3f] border border-black/[0.08] shadow-[0_1px_4px_rgba(0,0,0,0.06)]'
         }`}
-        whileHover={{ scale: 1.1 }}
-        whileTap={{ scale: 0.9 }}
+        whileTap={{ scale: 0.92 }}
         title={dark ? 'Switch to light mode' : 'Switch to dark mode'}
       >
         <AnimatePresence mode="wait">
@@ -1533,12 +1534,12 @@ function AIStudio({ receiptHtml, setReceiptHtml, messages, setMessages, currentC
     msg.role === 'ai' ? (msg.content.replace(/```html[\s\S]*?```/g, '').trim() || 'Receipt generated! Check the preview.') : msg.content;
 
   // ── Dark-aware tokens ──
-  const cardBg    = dark ? 'bg-[#1e1e1e] border-white/10' : 'bg-white border-black/5';
-  const headerBdr = dark ? 'border-white/10' : 'border-gray-100';
-  const inputBg   = dark ? 'bg-white/5 border-white/10 text-gray-100 placeholder-gray-500 focus:border-indigo-400' : 'bg-gray-50 border-gray-200 text-gray-800 placeholder-gray-400 focus:border-indigo-400';
-  const sidebarBg = dark ? 'bg-[#171717]' : 'bg-gray-50';
-  const sidebarItemBg = dark ? 'hover:bg-white/5' : 'hover:bg-gray-100';
-  const sidebarItemActive = dark ? 'bg-white/10 text-white' : 'bg-indigo-50 text-indigo-700';
+  const cardBg    = dark ? 'bg-[#111113] border-white/[0.06]' : 'bg-white border-black/[0.06]';
+  const headerBdr = dark ? 'border-white/[0.06]' : 'border-black/[0.06]';
+  const inputBg   = dark ? 'bg-white/[0.04] border-white/[0.08] text-[#ededef] placeholder-[#5c5c63] focus:border-[#5E6AD2]/50' : 'bg-[#f4f4f5] border-transparent text-[#0d0d0e] placeholder-[#9b9ba0] focus:bg-white focus:border-black/[0.1]';
+  const sidebarBg = dark ? 'bg-[#0d0d0e]' : 'bg-[#f9f9fb]';
+  const sidebarItemBg = dark ? 'hover:bg-white/[0.04]' : 'hover:bg-black/[0.04]';
+  const sidebarItemActive = dark ? 'bg-white/[0.07] text-[#ededef]' : 'bg-black/[0.05] text-[#0d0d0e]';
 
   return (
     <div className="flex-1 flex min-h-0 overflow-hidden">
@@ -1567,13 +1568,13 @@ function AIStudio({ receiptHtml, setReceiptHtml, messages, setMessages, currentC
         {/* Sidebar header */}
         <div className={`shrink-0 flex items-center justify-between px-4 py-4 border-b ${headerBdr}`}>
           <button onClick={newChat}
-            className={`flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-medium transition-colors w-full ${dark ? 'bg-white/10 text-gray-200 hover:bg-white/15' : 'bg-white text-gray-700 hover:bg-gray-100 border border-gray-200'}`}>
-            <SquarePen className="w-4 h-4" /> New Chat
+            className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-sm font-medium transition-colors w-full ${dark ? 'bg-white/[0.06] text-[#c7c7c8] hover:bg-white/[0.1]' : 'bg-black/[0.04] text-[#3d3d3f] hover:bg-black/[0.07]'}`}>
+            <SquarePen className="w-3.5 h-3.5" /> New Chat
           </button>
-          <button onClick={() => setSidebarOpen(false)} className={`lg:hidden ml-2 p-1.5 rounded-lg ${dark ? 'hover:bg-white/10 text-gray-400' : 'hover:bg-gray-200 text-gray-500'}`}>
+          <button onClick={() => setSidebarOpen(false)} className={`lg:hidden ml-2 p-1.5 rounded-md ${dark ? 'hover:bg-white/[0.06] text-[#5c5c63]' : 'hover:bg-black/[0.05] text-[#9b9ba0]'}`}>
             <X className="w-4 h-4" />
           </button>
-          <button onClick={() => setSidebarCollapsed(true)} className={`hidden lg:block ml-2 p-1.5 rounded-lg ${dark ? 'hover:bg-white/10 text-gray-400' : 'hover:bg-gray-200 text-gray-500'}`}>
+          <button onClick={() => setSidebarCollapsed(true)} className={`hidden lg:block ml-2 p-1.5 rounded-md ${dark ? 'hover:bg-white/[0.06] text-[#5c5c63]' : 'hover:bg-black/[0.05] text-[#9b9ba0]'}`}>
             <PanelLeftClose className="w-4 h-4" />
           </button>
         </div>
@@ -1589,9 +1590,9 @@ function AIStudio({ receiptHtml, setReceiptHtml, messages, setMessages, currentC
               {chats.map(chat => (
                 <div key={chat.id}
                   onClick={() => renamingId === chat.id ? undefined : loadChat(chat.id)}
-                  className={`group flex items-center gap-2 px-3 py-2.5 rounded-xl transition-colors text-sm ${
-                    renamingId === chat.id ? (dark ? 'bg-white/5' : 'bg-gray-100') :
-                    currentChatId === chat.id ? sidebarItemActive : `cursor-pointer ${dark ? 'text-gray-300' : 'text-gray-600'} ${sidebarItemBg}`
+                  className={`group flex items-center gap-2 px-2.5 py-2 rounded-md transition-colors text-sm ${
+                    renamingId === chat.id ? (dark ? 'bg-white/[0.04]' : 'bg-black/[0.04]') :
+                    currentChatId === chat.id ? sidebarItemActive : `cursor-pointer ${dark ? 'text-[#8b8b8e]' : 'text-[#5c5c63]'} ${sidebarItemBg}`
                   }`}>
                   <MessageSquare className="w-3.5 h-3.5 shrink-0 opacity-50" />
                   {renamingId === chat.id ? (
@@ -1605,14 +1606,14 @@ function AIStudio({ receiptHtml, setReceiptHtml, messages, setMessages, currentC
                       }}
                       onBlur={() => commitRename(chat.id)}
                       onClick={e => e.stopPropagation()}
-                      className={`flex-1 min-w-0 text-sm bg-transparent outline-none border-b ${dark ? 'border-indigo-400 text-gray-100' : 'border-indigo-500 text-gray-800'}`}
+                      className={`flex-1 min-w-0 text-sm bg-transparent outline-none border-b ${dark ? 'border-[#5E6AD2] text-[#ededef]' : 'border-[#5E6AD2] text-[#0d0d0e]'}`}
                     />
                   ) : (
                     <span className="flex-1 truncate">{chat.title}</span>
                   )}
                   {renamingId === chat.id ? (
                     <button onMouseDown={e => { e.preventDefault(); commitRename(chat.id); }}
-                      className="p-1 rounded-md text-indigo-500 hover:bg-indigo-100 dark:hover:bg-indigo-900/30 transition-all shrink-0">
+                      className={`p-1 rounded-md text-[#5E6AD2] transition-all shrink-0 ${dark ? 'hover:bg-white/[0.06]' : 'hover:bg-black/[0.06]'}`}>
                       <Check className="w-3 h-3" />
                     </button>
                   ) : (
@@ -1647,8 +1648,8 @@ function AIStudio({ receiptHtml, setReceiptHtml, messages, setMessages, currentC
               </div>
             ) : (
               <SignInButton mode="modal">
-                <button className={`flex items-center gap-2 w-full px-3 py-2.5 rounded-xl text-sm font-medium transition-colors ${dark ? 'bg-white/10 text-gray-200 hover:bg-white/15' : 'bg-indigo-50 text-indigo-700 hover:bg-indigo-100'}`}>
-                  <LogIn className="w-4 h-4" /> Sign In
+                <button className={`flex items-center gap-2 w-full px-3 py-2 rounded-md text-sm font-medium transition-colors ${dark ? 'bg-white/[0.06] text-[#c7c7c8] hover:bg-white/[0.1]' : 'bg-[#5E6AD2]/[0.08] text-[#5E6AD2] hover:bg-[#5E6AD2]/[0.14]'}`}>
+                  <LogIn className="w-3.5 h-3.5" /> Sign In
                 </button>
               </SignInButton>
             )
@@ -1664,48 +1665,48 @@ function AIStudio({ receiptHtml, setReceiptHtml, messages, setMessages, currentC
       <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
 
         {/* Mobile tab bar — hidden on desktop */}
-        <div className={`lg:hidden shrink-0 flex border-b ${dark ? 'border-white/10 bg-[#171717]' : 'border-gray-200 bg-gray-50'}`}>
+        <div className={`lg:hidden shrink-0 flex border-b ${dark ? 'border-white/[0.06] bg-[#0d0d0e]' : 'border-black/[0.06] bg-[#f9f9fb]'}`}>
           <button onClick={() => setMobilePanel('chat')}
-            className={`flex-1 flex items-center justify-center gap-1.5 py-3 text-sm font-medium transition-colors border-b-2 ${
+            className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 text-xs font-medium tracking-wide uppercase transition-colors border-b-2 ${
               mobilePanel === 'chat'
-                ? 'border-indigo-500 text-indigo-600'
-                : `border-transparent ${dark ? 'text-gray-400' : 'text-gray-500'}`
+                ? 'border-[#5E6AD2] text-[#5E6AD2]'
+                : `border-transparent ${dark ? 'text-[#5c5c63]' : 'text-[#9b9ba0]'}`
             }`}>
-            <MessageSquare className="w-4 h-4" /> Chat
+            <MessageSquare className="w-3.5 h-3.5" /> Chat
           </button>
           <button onClick={() => setMobilePanel('preview')}
-            className={`flex-1 flex items-center justify-center gap-1.5 py-3 text-sm font-medium transition-colors border-b-2 ${
+            className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 text-xs font-medium tracking-wide uppercase transition-colors border-b-2 ${
               mobilePanel === 'preview'
-                ? 'border-indigo-500 text-indigo-600'
-                : `border-transparent ${dark ? 'text-gray-400' : 'text-gray-500'}`
+                ? 'border-[#5E6AD2] text-[#5E6AD2]'
+                : `border-transparent ${dark ? 'text-[#5c5c63]' : 'text-[#9b9ba0]'}`
             }`}>
-            <Eye className="w-4 h-4" /> Preview
-            {receiptHtml && <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 ml-0.5" />}
+            <Eye className="w-3.5 h-3.5" /> Preview
+            {receiptHtml && <span className="w-1.5 h-1.5 rounded-full bg-[#5E6AD2] ml-0.5" />}
           </button>
         </div>
 
         <div className="flex-1 flex lg:flex-row min-h-0 gap-0 lg:gap-4 p-2 sm:p-4 overflow-hidden">
 
           {/* Chat panel */}
-          <div className={`${mobilePanel === 'chat' ? 'flex' : 'hidden'} lg:flex flex-1 flex-col rounded-2xl shadow-sm border min-h-0 min-w-0 ${cardBg}`}>
+          <div className={`${mobilePanel === 'chat' ? 'flex' : 'hidden'} lg:flex flex-1 flex-col rounded-xl border min-h-0 min-w-0 ${cardBg}`}>
             {/* Chat header */}
-            <div className={`shrink-0 flex items-center gap-2.5 px-4 sm:px-5 py-3 sm:py-4 border-b ${headerBdr}`}>
+            <div className={`shrink-0 flex items-center gap-2.5 px-4 py-3 border-b ${headerBdr}`}>
               <button onClick={() => window.innerWidth >= 1024 ? setSidebarCollapsed(false) : setSidebarOpen(true)}
-                className={`${sidebarCollapsed ? '' : 'lg:hidden'} p-1.5 -ml-1 rounded-lg ${dark ? 'hover:bg-white/10 text-gray-400' : 'hover:bg-gray-100 text-gray-500'}`}>
+                className={`${sidebarCollapsed ? '' : 'lg:hidden'} p-1.5 -ml-1 rounded-md ${dark ? 'hover:bg-white/[0.06] text-[#5c5c63]' : 'hover:bg-black/[0.05] text-[#9b9ba0]'}`}>
                 <PanelLeftOpen className="w-4 h-4" />
               </button>
-              <div className="w-8 h-8 rounded-lg bg-linear-to-br from-indigo-600 to-purple-600 flex items-center justify-center shrink-0">
-                <Sparkles className="w-4 h-4 text-white" />
+              <div className={`w-7 h-7 rounded-md flex items-center justify-center shrink-0 ${dark ? 'bg-[#5E6AD2]/20' : 'bg-[#5E6AD2]/10'}`}>
+                <Sparkles className="w-3.5 h-3.5 text-[#5E6AD2]" />
               </div>
               <div className="min-w-0">
-                <h2 className={`text-sm font-semibold ${dark ? 'text-gray-100' : 'text-gray-800'}`}>AI Studio</h2>
-                <p className="text-[10px] text-gray-400">Powered by GPT-4o mini</p>
+                <h2 className={`text-sm font-semibold tracking-[-0.01em] ${dark ? 'text-[#ededef]' : 'text-[#0d0d0e]'}`}>AI Studio</h2>
+                <p className={`text-[10px] ${dark ? 'text-[#5c5c63]' : 'text-[#9b9ba0]'}`}>Powered by GPT</p>
               </div>
             </div>
 
             {/* Messages */}
             <div
-              className={`flex-1 min-h-0 overflow-y-auto px-4 py-4 relative transition-colors duration-150 ${isDragOver ? (dark ? 'bg-indigo-500/5' : 'bg-indigo-50/60') : ''}`}
+              className={`flex-1 min-h-0 overflow-y-auto px-4 py-4 relative transition-colors duration-150 ${isDragOver ? (dark ? 'bg-[#5E6AD2]/5' : 'bg-[#5E6AD2]/[0.04]') : ''}`}
               onDragEnter={e => { e.preventDefault(); dragCounter.current++; setIsDragOver(true); }}
               onDragOver={e => e.preventDefault()}
               onDragLeave={() => { dragCounter.current--; if (dragCounter.current === 0) setIsDragOver(false); }}
@@ -1715,10 +1716,10 @@ function AIStudio({ receiptHtml, setReceiptHtml, messages, setMessages, currentC
               <AnimatePresence>
                 {isDragOver && (
                   <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-                    className="absolute inset-2 rounded-xl border-2 border-dashed border-indigo-400 flex items-center justify-center z-20 pointer-events-none bg-indigo-500/5">
+                    className="absolute inset-2 rounded-xl border-2 border-dashed border-[#5E6AD2]/50 flex items-center justify-center z-20 pointer-events-none bg-[#5E6AD2]/[0.04]">
                     <div className="text-center">
-                      <Paperclip className={`w-8 h-8 mx-auto mb-2 ${dark ? 'text-indigo-400' : 'text-indigo-500'}`} />
-                      <p className={`text-sm font-medium ${dark ? 'text-indigo-300' : 'text-indigo-600'}`}>Drop files here</p>
+                      <Paperclip className="w-8 h-8 mx-auto mb-2 text-[#5E6AD2]" />
+                      <p className={`text-sm font-medium text-[#5E6AD2]`}>Drop files here</p>
                     </div>
                   </motion.div>
                 )}
@@ -1730,10 +1731,12 @@ function AIStudio({ receiptHtml, setReceiptHtml, messages, setMessages, currentC
                     initial={i === messages.length - 1 ? { opacity: 0, y: 6 } : false}
                     animate={{ opacity: 1, y: 0 }}
                     className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                    <div className={`max-w-[85%] rounded-2xl px-4 py-2.5 text-sm leading-relaxed whitespace-pre-wrap ${
+                    <div className={`max-w-[85%] px-3.5 py-2.5 text-sm leading-relaxed whitespace-pre-wrap ${
                       msg.role === 'user'
-                        ? 'bg-indigo-600 text-white'
-                        : dark ? 'bg-white/5 text-gray-200 border border-white/10' : 'bg-gray-50 text-gray-700 border border-gray-100'
+                        ? 'bg-[#5E6AD2] text-white rounded-2xl rounded-br-sm'
+                        : dark
+                          ? 'bg-white/[0.04] text-[#c7c7c8] border border-white/[0.06] rounded-2xl rounded-bl-sm'
+                          : 'bg-[#f4f4f5] text-[#3d3d3f] border border-black/[0.06] rounded-2xl rounded-bl-sm'
                     }`}>
                       {displayContent(msg)}
                     </div>
@@ -1742,22 +1745,18 @@ function AIStudio({ receiptHtml, setReceiptHtml, messages, setMessages, currentC
 
                 {/* AI thinking animation */}
                 {isLoading && (
-                  <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} className="flex justify-start">
-                    <div className={`rounded-2xl px-4 py-3 ${dark ? 'bg-white/5 border border-white/10' : 'bg-gray-50 border border-gray-100'}`}>
-                      <div className="flex items-center gap-2.5">
-                        <motion.div
-                          className="w-5 h-5 rounded-full bg-linear-to-br from-indigo-500 to-purple-500 flex items-center justify-center"
-                          animate={{ scale: [1, 1.15, 1] }}
-                          transition={{ duration: 2, repeat: Infinity, ease: 'easeInOut' }}
-                        >
-                          <Sparkles className="w-3 h-3 text-white" />
-                        </motion.div>
-                        <div className="flex items-center gap-1">
+                  <motion.div initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} className="flex justify-start">
+                    <div className={`rounded-2xl rounded-bl-sm px-3.5 py-2.5 border ${dark ? 'bg-white/[0.04] border-white/[0.06]' : 'bg-[#f4f4f5] border-black/[0.06]'}`}>
+                      <div className="flex items-center gap-2">
+                        <div className={`w-4 h-4 rounded-sm flex items-center justify-center ${dark ? 'bg-[#5E6AD2]/20' : 'bg-[#5E6AD2]/10'}`}>
+                          <Sparkles className="w-2.5 h-2.5 text-[#5E6AD2]" />
+                        </div>
+                        <div className="flex items-center gap-[3px]">
                           {[0, 1, 2].map(i => (
                             <motion.div key={i}
-                              className={`w-1.5 h-1.5 rounded-full ${dark ? 'bg-gray-400' : 'bg-gray-500'}`}
-                              animate={{ opacity: [0.2, 1, 0.2], y: [0, -3, 0] }}
-                              transition={{ duration: 1, repeat: Infinity, delay: i * 0.2, ease: 'easeInOut' }}
+                              className={`w-1 h-1 rounded-full ${dark ? 'bg-[#5c5c63]' : 'bg-[#9b9ba0]'}`}
+                              animate={{ opacity: [0.3, 1, 0.3], y: [0, -2, 0] }}
+                              transition={{ duration: 1.2, repeat: Infinity, delay: i * 0.18, ease: 'easeInOut' }}
                             />
                           ))}
                         </div>
@@ -1771,12 +1770,12 @@ function AIStudio({ receiptHtml, setReceiptHtml, messages, setMessages, currentC
                     className="grid grid-cols-2 gap-2 mt-4">
                     {AI_SUGGESTIONS.map(s => (
                       <button key={s.label} onClick={() => setInput(s.prompt)}
-                        className={`text-left px-3 py-3 rounded-xl border transition-all hover:-translate-y-0.5 active:translate-y-0 ${
-                          dark ? 'border-white/10 hover:bg-white/5 text-gray-300' : 'border-gray-200 hover:bg-gray-50 text-gray-600'
+                        className={`text-left px-3 py-3 rounded-lg border transition-all hover:-translate-y-px active:translate-y-0 ${
+                          dark ? 'border-white/[0.07] hover:bg-white/[0.03] text-[#c7c7c8]' : 'border-black/[0.07] hover:bg-[#f4f4f5] text-[#3d3d3f]'
                         }`}>
-                        <span className="text-lg">{s.icon}</span>
-                        <p className="mt-1.5 text-xs font-medium leading-tight">{s.label}</p>
-                        <p className={`mt-0.5 text-[10px] leading-tight line-clamp-1 ${dark ? 'text-gray-500' : 'text-gray-400'}`}>{s.prompt}</p>
+                        <span className="text-base">{s.icon}</span>
+                        <p className="mt-1.5 text-xs font-medium leading-tight tracking-[-0.01em]">{s.label}</p>
+                        <p className={`mt-0.5 text-[10px] leading-tight line-clamp-2 ${dark ? 'text-[#5c5c63]' : 'text-[#9b9ba0]'}`}>{s.prompt}</p>
                       </button>
                     ))}
                   </motion.div>
@@ -1795,7 +1794,7 @@ function AIStudio({ receiptHtml, setReceiptHtml, messages, setMessages, currentC
                     className="flex flex-wrap gap-2 px-4 pt-3">
                     {attachedFiles.map(f => (
                       <motion.div key={f.id} initial={{ opacity: 0, scale: 0.8 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.8 }}
-                        className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs border ${dark ? 'bg-white/5 border-white/10 text-gray-200' : 'bg-gray-50 border-gray-200 text-gray-700'}`}>
+                        className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs border ${dark ? 'bg-white/[0.04] border-white/[0.08] text-[#c7c7c8]' : 'bg-[#f4f4f5] border-black/[0.06] text-[#3d3d3f]'}`}>
                         {f.type === 'image' && f.preview
                           ? <img src={f.preview} className="w-5 h-5 rounded object-cover" alt="" />
                           : <FileText className="w-3.5 h-3.5 text-purple-400 shrink-0" />}
@@ -1814,7 +1813,7 @@ function AIStudio({ receiptHtml, setReceiptHtml, messages, setMessages, currentC
                   {showAttachMenu && <div className="fixed inset-0 z-30" onClick={() => setShowAttachMenu(false)} />}
                   <button
                     onClick={e => { e.stopPropagation(); setShowAttachMenu(v => !v); }}
-                    className={`p-2.5 rounded-xl transition-all duration-200 ${showAttachMenu ? 'bg-indigo-600 text-white' : dark ? 'bg-white/5 text-gray-400 hover:bg-white/10' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}>
+                    className={`p-2 rounded-lg transition-all duration-200 ${showAttachMenu ? 'bg-[#5E6AD2] text-white' : dark ? 'bg-white/[0.04] text-[#5c5c63] hover:bg-white/[0.08] hover:text-[#8b8b8e]' : 'bg-[#f4f4f5] text-[#9b9ba0] hover:bg-[#ececee] hover:text-[#5c5c63]'}`}>
                     <motion.div animate={{ rotate: showAttachMenu ? 45 : 0 }} transition={{ duration: 0.2 }}>
                       <Plus className="w-4 h-4" />
                     </motion.div>
@@ -1824,14 +1823,14 @@ function AIStudio({ receiptHtml, setReceiptHtml, messages, setMessages, currentC
                     {showAttachMenu && (
                       <motion.div initial={{ opacity: 0, scale: 0.9, y: 8 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.9, y: 8 }}
                         transition={{ duration: 0.15 }} onClick={e => e.stopPropagation()}
-                        className={`absolute bottom-full left-0 mb-2 rounded-xl shadow-xl border overflow-hidden z-40 min-w-[160px] ${dark ? 'bg-[#1e1e1e] border-white/10' : 'bg-white border-gray-100'}`}>
+                        className={`absolute bottom-full left-0 mb-2 rounded-lg shadow-[0_4px_24px_rgba(0,0,0,0.16)] border overflow-hidden z-40 min-w-[160px] ${dark ? 'bg-[#161618] border-white/[0.08]' : 'bg-white border-black/[0.08]'}`}>
                         <button onClick={() => { fileInputRef.current!.accept = 'image/*'; fileInputRef.current!.click(); setShowAttachMenu(false); }}
-                          className={`flex items-center gap-2.5 px-4 py-3 text-sm w-full text-left transition-colors ${dark ? 'hover:bg-white/5 text-gray-200' : 'hover:bg-gray-50 text-gray-700'}`}>
-                          <ImageIcon className="w-4 h-4 text-indigo-400" /> Upload Image
+                          className={`flex items-center gap-2.5 px-3.5 py-2.5 text-sm w-full text-left transition-colors ${dark ? 'hover:bg-white/[0.04] text-[#c7c7c8]' : 'hover:bg-[#f4f4f5] text-[#3d3d3f]'}`}>
+                          <ImageIcon className="w-3.5 h-3.5 text-[#5E6AD2]" /> Upload Image
                         </button>
                         <button onClick={() => { fileInputRef.current!.accept = '.txt,.md,.csv,.json'; fileInputRef.current!.click(); setShowAttachMenu(false); }}
-                          className={`flex items-center gap-2.5 px-4 py-3 text-sm w-full text-left transition-colors border-t ${dark ? 'hover:bg-white/5 text-gray-200 border-white/5' : 'hover:bg-gray-50 text-gray-700 border-gray-50'}`}>
-                          <FileText className="w-4 h-4 text-purple-400" /> Upload File
+                          className={`flex items-center gap-2.5 px-3.5 py-2.5 text-sm w-full text-left transition-colors border-t ${dark ? 'hover:bg-white/[0.04] text-[#c7c7c8] border-white/[0.05]' : 'hover:bg-[#f4f4f5] text-[#3d3d3f] border-black/[0.05]'}`}>
+                          <FileText className="w-3.5 h-3.5 text-[#5E6AD2]" /> Upload File
                         </button>
                       </motion.div>
                     )}
@@ -1848,7 +1847,7 @@ function AIStudio({ receiptHtml, setReceiptHtml, messages, setMessages, currentC
                   className={`flex-1 rounded-xl px-4 py-2.5 text-sm outline-none transition-colors disabled:opacity-40 border ${inputBg}`}
                   autoFocus />
                 <button onClick={send} disabled={(!input.trim() && attachedFiles.length === 0) || isLoading}
-                  className="px-4 py-2.5 bg-indigo-600 text-white rounded-xl text-sm font-medium hover:bg-indigo-500 transition-colors disabled:opacity-30 disabled:cursor-not-allowed shrink-0">
+                  className="p-2.5 bg-[#5E6AD2] text-white rounded-lg hover:bg-[#6B7AE8] transition-colors disabled:opacity-30 disabled:cursor-not-allowed shrink-0">
                   <Send className="w-4 h-4" />
                 </button>
               </div>
@@ -1856,16 +1855,16 @@ function AIStudio({ receiptHtml, setReceiptHtml, messages, setMessages, currentC
           </div>
 
           {/* Preview panel */}
-          <div className={`${mobilePanel === 'preview' ? 'flex' : 'hidden'} lg:flex flex-1 flex-col rounded-2xl shadow-sm border min-h-0 min-w-0 ${cardBg}`}>
-            <div className={`shrink-0 flex items-center justify-between px-5 py-4 border-b ${headerBdr}`}>
+          <div className={`${mobilePanel === 'preview' ? 'flex' : 'hidden'} lg:flex flex-1 flex-col rounded-xl border min-h-0 min-w-0 ${cardBg}`}>
+            <div className={`shrink-0 flex items-center justify-between px-4 py-3 border-b ${headerBdr}`}>
               <div className="flex items-center gap-2">
-                <Eye className="w-4 h-4 text-gray-400" />
-                <h2 className={`text-sm font-semibold ${dark ? 'text-gray-100' : 'text-gray-800'}`}>Preview</h2>
+                <Eye className={`w-3.5 h-3.5 ${dark ? 'text-[#5c5c63]' : 'text-[#9b9ba0]'}`} />
+                <h2 className={`text-sm font-semibold tracking-[-0.01em] ${dark ? 'text-[#ededef]' : 'text-[#0d0d0e]'}`}>Preview</h2>
               </div>
               <div className="flex items-center gap-2">
                 {receiptHtml && (
                   <button onClick={downloadPdf} disabled={isDownloading}
-                    className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 text-white rounded-lg text-xs font-medium hover:bg-indigo-500 transition-colors disabled:opacity-50">
+                    className="flex items-center gap-1.5 px-3 py-1.5 bg-[#5E6AD2] text-white rounded-md text-xs font-medium hover:bg-[#6B7AE8] transition-colors disabled:opacity-50">
                     {isDownloading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
                     {isDownloading ? 'Generating...' : 'Download PDF'}
                   </button>
@@ -1879,7 +1878,7 @@ function AIStudio({ receiptHtml, setReceiptHtml, messages, setMessages, currentC
                   <div className="relative">
                     {/* Ambient glow */}
                     <motion.div
-                      className={`absolute -inset-6 rounded-3xl blur-2xl ${dark ? 'bg-indigo-500/10' : 'bg-indigo-400/15'}`}
+                      className={`absolute -inset-6 rounded-3xl blur-2xl ${dark ? 'bg-[#5E6AD2]/10' : 'bg-[#5E6AD2]/[0.08]'}`}
                       animate={{ opacity: [0.3, 0.7, 0.3], scale: [0.95, 1.05, 0.95] }}
                       transition={{ duration: 3, repeat: Infinity, ease: 'easeInOut' }}
                     />
@@ -1888,8 +1887,8 @@ function AIStudio({ receiptHtml, setReceiptHtml, messages, setMessages, currentC
                     <motion.div
                       className={`relative w-52 rounded-2xl p-5 overflow-hidden shadow-2xl ${
                         dark
-                          ? 'bg-[#1a1a2e] border border-indigo-500/30 shadow-indigo-500/10'
-                          : 'bg-white border border-indigo-100 shadow-indigo-200/30'
+                          ? 'bg-[#111113] border border-[#5E6AD2]/20'
+                          : 'bg-white border border-black/[0.06]'
                       }`}
                       initial={{ opacity: 0, y: 20 }}
                       animate={{ opacity: 1, y: 0 }}
@@ -1897,7 +1896,7 @@ function AIStudio({ receiptHtml, setReceiptHtml, messages, setMessages, currentC
                     >
                       {/* Scanning beam */}
                       <motion.div
-                        className="absolute left-0 right-0 h-10 bg-gradient-to-b from-indigo-500/15 via-indigo-500/5 to-transparent pointer-events-none z-10"
+                        className="absolute left-0 right-0 h-10 bg-gradient-to-b from-[#5E6AD2]/15 via-[#5E6AD2]/5 to-transparent pointer-events-none z-10"
                         animate={{ top: ['-40px', 'calc(100% + 40px)'] }}
                         transition={{ duration: 2, repeat: Infinity, ease: 'linear' }}
                       />
@@ -1906,13 +1905,13 @@ function AIStudio({ receiptHtml, setReceiptHtml, messages, setMessages, currentC
                         {/* Logo placeholder */}
                         <div className="flex justify-center">
                           <motion.div
-                            className={`w-12 h-12 rounded-lg ${dark ? 'bg-indigo-500/20' : 'bg-indigo-100'}`}
+                            className={`w-12 h-12 rounded-lg ${dark ? 'bg-[#5E6AD2]/20' : 'bg-[#5E6AD2]/10'}`}
                             animate={{ opacity: [0.3, 0.8, 0.3] }}
                             transition={{ duration: 2, repeat: Infinity }}
                           />
                         </div>
                         {/* Business name */}
-                        <motion.div className={`h-3 w-3/5 mx-auto rounded ${dark ? 'bg-indigo-400/30' : 'bg-indigo-200'}`}
+                        <motion.div className={`h-3 w-3/5 mx-auto rounded ${dark ? 'bg-[#5E6AD2]/30' : 'bg-[#5E6AD2]/20'}`}
                           animate={{ opacity: [0.2, 0.7, 0.2] }} transition={{ duration: 2, repeat: Infinity, delay: 0.1 }} />
                         {/* Address */}
                         <motion.div className={`h-1.5 w-2/5 mx-auto rounded ${dark ? 'bg-white/10' : 'bg-gray-200'}`}
@@ -1949,14 +1948,14 @@ function AIStudio({ receiptHtml, setReceiptHtml, messages, setMessages, currentC
                         <div className="flex justify-between items-center pt-1">
                           <motion.div className={`h-2 w-10 rounded ${dark ? 'bg-white/10' : 'bg-gray-200'}`}
                             animate={{ opacity: [0.3, 0.7, 0.3] }} transition={{ duration: 2, repeat: Infinity, delay: 1.2 }} />
-                          <motion.div className={`h-4 w-16 rounded ${dark ? 'bg-indigo-400/30' : 'bg-indigo-200'}`}
+                          <motion.div className={`h-4 w-16 rounded ${dark ? 'bg-[#5E6AD2]/30' : 'bg-[#5E6AD2]/20'}`}
                             animate={{ opacity: [0.3, 1, 0.3] }} transition={{ duration: 1.5, repeat: Infinity, delay: 1.3 }} />
                         </div>
                       </div>
 
                       {/* Typing cursor */}
                       <motion.div
-                        className="mt-3 w-1.5 h-4 rounded-sm bg-indigo-500"
+                        className="mt-3 w-1.5 h-4 rounded-sm bg-[#5E6AD2]"
                         animate={{ opacity: [1, 0] }}
                         transition={{ duration: 0.6, repeat: Infinity }}
                       />
@@ -1966,7 +1965,7 @@ function AIStudio({ receiptHtml, setReceiptHtml, messages, setMessages, currentC
                   {/* Status text */}
                   <div className="mt-8 text-center space-y-2">
                     <div className="flex items-center justify-center gap-2">
-                      <Loader2 className="w-4 h-4 text-indigo-500 animate-spin" />
+                      <Loader2 className="w-4 h-4 text-[#5E6AD2] animate-spin" />
                       <AnimatePresence mode="wait">
                         <motion.span
                           key={loadingStep}
@@ -1992,7 +1991,7 @@ function AIStudio({ receiptHtml, setReceiptHtml, messages, setMessages, currentC
                     animate={{ y: [0, -6, 0] }}
                     transition={{ duration: 3, repeat: Infinity, ease: 'easeInOut' }}>
                     <div className="flex justify-center">
-                      <motion.div className={`w-10 h-10 rounded-lg ${dark ? 'bg-indigo-500/20' : 'bg-indigo-100'}`}
+                      <motion.div className={`w-10 h-10 rounded-lg ${dark ? 'bg-[#5E6AD2]/20' : 'bg-[#5E6AD2]/10'}`}
                         animate={{ opacity: [0.4, 0.8, 0.4] }} transition={{ duration: 2, repeat: Infinity }} />
                     </div>
                     {[0.7, 1, 0.6, 0.9, 0.5].map((w, i) => (
@@ -2003,12 +2002,12 @@ function AIStudio({ receiptHtml, setReceiptHtml, messages, setMessages, currentC
                     <div className={`h-px ${dark ? 'bg-white/10' : 'bg-gray-200'}`} />
                     <div className="flex justify-between items-center">
                       <motion.div className={`h-2 w-10 rounded-full ${dark ? 'bg-white/8' : 'bg-gray-200'}`} animate={{ opacity: [0.3, 0.7, 0.3] }} transition={{ duration: 2, repeat: Infinity, delay: 0.5 }} />
-                      <motion.div className={`h-3 w-14 rounded-full ${dark ? 'bg-indigo-500/30' : 'bg-indigo-100'}`} animate={{ opacity: [0.4, 0.8, 0.4] }} transition={{ duration: 2, repeat: Infinity, delay: 0.7 }} />
+                      <motion.div className={`h-3 w-14 rounded-full ${dark ? 'bg-[#5E6AD2]/30' : 'bg-[#5E6AD2]/15'}`} animate={{ opacity: [0.4, 0.8, 0.4] }} transition={{ duration: 2, repeat: Infinity, delay: 0.7 }} />
                     </div>
                   </motion.div>
                   <div className="text-center space-y-1">
                     <motion.div animate={{ opacity: [0.5, 1, 0.5] }} transition={{ duration: 3, repeat: Infinity }}>
-                      <Sparkles className={`w-5 h-5 mx-auto mb-1 ${dark ? 'text-indigo-400' : 'text-indigo-300'}`} />
+                      <Sparkles className="w-5 h-5 mx-auto mb-1 text-[#5E6AD2]" />
                     </motion.div>
                     <p className={`text-sm ${dark ? 'text-gray-400' : 'text-gray-400'}`}>Your AI-generated receipt</p>
                     <p className={`text-xs ${dark ? 'text-gray-500' : 'text-gray-300'}`}>will appear here</p>

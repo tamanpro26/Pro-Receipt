@@ -6,7 +6,12 @@
 @theme {
   --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
-  
+
+  /* ProReceipt accent — muted indigo-violet, Linear-inspired */
+  --color-accent:       #5E6AD2;
+  --color-accent-hover: #6B7AE8;
+  --color-accent-muted: #5E6AD220;
+
   /* Force RGB/Hex for all standard colors to avoid oklab/oklch issues with capture libraries */
   --color-black: rgb(0, 0, 0);
   --color-white: rgb(255, 255, 255);
