@@ -214,7 +214,11 @@ export default function App() {
   const [aiMessages, setAiMessages]       = useState<AiMessage[]>([AI_STUDIO_GREETING]);
   const [aiReceiptHtml, setAiReceiptHtml] = useState('');
   const [currentChatId, setCurrentChatId] = useState<string | null>(null);
-  const [dark, setDark]                       = useState(() => localStorage.getItem('proreceipt_dark') === 'true');
+  const [dark, setDark]                       = useState(() => {
+    const stored = localStorage.getItem('proreceipt_dark');
+    if (stored !== null) return stored === 'true';
+    return window.matchMedia?.('(prefers-color-scheme: dark)').matches ?? false;
+  });
   const btnOutline = dark ? btnOutlineDark : btnOutlineLight;
 
   // useDeferredValue decouples preview renders from editor renders:
@@ -1129,9 +1133,9 @@ const ScaledIframePreview = memo(function ScaledIframePreview({
   }, [recompute]);
 
   return (
-    <div ref={wrapperRef} className="w-full overflow-x-hidden overflow-y-auto">
+    <div ref={wrapperRef} className="w-full h-full overflow-x-hidden overflow-y-auto">
       {/* Shrink wrapper to scaled height so no dead space below */}
-      <div style={{ height: docH > 0 ? docH * scale : '100%', minHeight: '100%' }}>
+      <div style={{ height: docH > 0 ? docH * scale : 'auto' }}>
         <iframe
           ref={iframeRef}
           srcDoc={html}
@@ -1465,22 +1469,26 @@ function AIStudio({ receiptHtml, setReceiptHtml, messages, setMessages, currentC
       if (!de) throw new Error('Preview not ready');
       // Let fonts finish loading
       await tmp.contentDocument?.fonts?.ready;
-      // Expand iframe to full document height before capture
-      const fullH = de.scrollHeight;
-      tmp.style.height = `${fullH}px`;
+      // Resize iframe to the receipt's natural dimensions so html2canvas
+      // captures only the content — no extra whitespace around it.
+      const body = tmp.contentDocument!.body;
+      const naturalW = body.scrollWidth || de.scrollWidth;
+      const naturalH = body.scrollHeight || de.scrollHeight;
+      tmp.style.width  = `${naturalW}px`;
+      tmp.style.height = `${naturalH}px`;
 
       const html2canvas = (await import('html2canvas')).default;
       const { jsPDF }   = await import('jspdf');
 
-      const canvas = await html2canvas(de, {
+      const canvas = await html2canvas(body, {
         scale: 2,
         useCORS: true,
         backgroundColor: '#ffffff',
         logging: false,
-        width:        de.scrollWidth,
-        height:       de.scrollHeight,
-        windowWidth:  de.scrollWidth,
-        windowHeight: de.scrollHeight,
+        width:        naturalW,
+        height:       naturalH,
+        windowWidth:  naturalW,
+        windowHeight: naturalH,
         scrollX: 0,
         scrollY: 0,
       });
@@ -1713,40 +1721,24 @@ function AIStudio({ receiptHtml, setReceiptHtml, messages, setMessages, currentC
                 {/* AI thinking animation */}
                 {isLoading && (
                   <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} className="flex justify-start">
-                    <div className={`rounded-2xl px-5 py-4 space-y-3 max-w-[280px] ${dark ? 'bg-white/5 border border-white/10' : 'bg-gray-50 border border-gray-100'}`}>
-                      <div className="space-y-2">
-                        <div className="flex items-center gap-2 mb-3">
-                          <motion.div
-                            className="w-5 h-5 rounded-full bg-linear-to-br from-indigo-500 to-purple-500 flex items-center justify-center"
-                            animate={{ scale: [1, 1.2, 1] }}
-                            transition={{ duration: 1.5, repeat: Infinity }}
-                          >
-                            <Sparkles className="w-3 h-3 text-white" />
-                          </motion.div>
-                          <span className={`text-xs font-medium ${dark ? 'text-gray-300' : 'text-gray-500'}`}>
-                            {AI_LOADING_MSGS[loadingStep]}
-                          </span>
-                        </div>
-                        {[0.9, 0.7, 0.5].map((width, i) => (
-                          <motion.div key={i}
-                            className={`h-2.5 rounded-full overflow-hidden ${dark ? 'bg-white/5' : 'bg-gray-200/60'}`}
-                            style={{ width: `${width * 100}%` }}>
-                            <motion.div
-                              className="h-full w-full bg-linear-to-r from-transparent via-indigo-400/30 to-transparent"
-                              animate={{ x: ['-100%', '100%'] }}
-                              transition={{ duration: 1.5, repeat: Infinity, delay: i * 0.2, ease: 'linear' }}
+                    <div className={`rounded-2xl px-4 py-3 ${dark ? 'bg-white/5 border border-white/10' : 'bg-gray-50 border border-gray-100'}`}>
+                      <div className="flex items-center gap-2.5">
+                        <motion.div
+                          className="w-5 h-5 rounded-full bg-linear-to-br from-indigo-500 to-purple-500 flex items-center justify-center"
+                          animate={{ scale: [1, 1.15, 1] }}
+                          transition={{ duration: 2, repeat: Infinity, ease: 'easeInOut' }}
+                        >
+                          <Sparkles className="w-3 h-3 text-white" />
+                        </motion.div>
+                        <div className="flex items-center gap-1">
+                          {[0, 1, 2].map(i => (
+                            <motion.div key={i}
+                              className={`w-1.5 h-1.5 rounded-full ${dark ? 'bg-gray-400' : 'bg-gray-500'}`}
+                              animate={{ opacity: [0.2, 1, 0.2], y: [0, -3, 0] }}
+                              transition={{ duration: 1, repeat: Infinity, delay: i * 0.2, ease: 'easeInOut' }}
                             />
-                          </motion.div>
-                        ))}
-                      </div>
-                      <div className="flex items-center gap-1 pt-1">
-                        {[0, 1, 2].map(i => (
-                          <motion.div key={i}
-                            className="w-1.5 h-1.5 rounded-full bg-indigo-500"
-                            animate={{ opacity: [0.3, 1, 0.3], scale: [0.8, 1.1, 0.8] }}
-                            transition={{ duration: 1.2, repeat: Infinity, delay: i * 0.25 }}
-                          />
-                        ))}
+                          ))}
+                        </div>
                       </div>
                     </div>
                   </motion.div>
