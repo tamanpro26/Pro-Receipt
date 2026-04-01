@@ -13,7 +13,7 @@ import {
   FolderOpen, Palette, CheckCircle2, User, Tag,
   Mail, Loader2, Sparkles, Send, Moon, Sun,
   MessageSquare, PanelLeftClose, PanelLeftOpen, LogIn, SquarePen, X, Pencil, Check,
-  Paperclip, ImageIcon,
+  Paperclip, ImageIcon, LayoutTemplate,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { SignInButton, UserButton } from '@clerk/clerk-react';
@@ -1098,6 +1098,45 @@ const AI_SUGGESTIONS = [
   { icon: '🏢', label: 'Business invoice',    prompt: 'Design a modern corporate invoice for software development consulting services' },
 ];
 
+const TEMPLATES = [
+  {
+    category: 'Food & Drink',
+    items: [
+      { icon: '☕', label: 'Coffee Shop',  desc: 'Espresso bar, drinks & pastries',   prompt: 'Create a stylish receipt for Brew & Co coffee shop. Items: 2× Oat Latte $6.50, 1× Cortado $4.80, 2× Almond Croissant $4.20. Paid by card. Modern minimal design with warm tones.' },
+      { icon: '🍽️', label: 'Restaurant',  desc: 'Fine dining dinner bill',            prompt: 'Generate an elegant receipt for Maison 42, a fine dining French restaurant. Table for 2, dinner: Duck Confit $38, Seabass $42, Crème Brûlée $14, Bottle of Merlot $68, service charge 12.5%. Sophisticated dark design.' },
+      { icon: '🍕', label: 'Fast Food',   desc: 'Quick service restaurant',           prompt: 'Create a receipt for Stackhouse Burgers. Items: Classic Smash Burger $12.90, Loaded Fries $5.50, Chocolate Shake $5.00, Bottled Water $2.00. Dine-in order #847. Clean bold design.' },
+      { icon: '🥐', label: 'Café & Bakery', desc: 'Pastries, sandwiches & drinks',   prompt: 'Make a charming receipt for Pétale Café & Bakery. Items: Avocado Toast $13.50, Matcha Latte $6.20, Pain au Chocolat $4.50, Granola Bowl $9.80. Takeaway. Warm pastel design.' },
+    ],
+  },
+  {
+    category: 'Business',
+    items: [
+      { icon: '💼', label: 'Freelance Invoice',  desc: 'Web / design services',       prompt: 'Create a professional freelance invoice from Alex Chen, UI/UX Designer to Momentum Startup. Services: UX Research $800, Wireframing $600, UI Design (12 screens) $2,400, Prototype $400. Total $4,200. Net 30. Clean corporate style.' },
+      { icon: '🏢', label: 'Corporate Invoice', desc: 'B2B services invoice',         prompt: 'Generate a formal corporate invoice from Apex Solutions Ltd to TechVentures Inc. Backend API Development 80hrs @$120 = $9,600, Code Review 20hrs @$95 = $1,900. Subtotal $11,500 + tax. Professional design.' },
+      { icon: '📋', label: 'Consulting',         desc: 'Strategy & advisory fees',    prompt: 'Create a consulting invoice from Dr. Sarah Mitchell, Business Strategy Consultant to Nova Retail Group. Market Analysis $3,500, Strategy Workshop (2 days) $4,000, Roadmap $1,500. Due in 14 days. Elegant minimal design.' },
+      { icon: '🔧', label: 'IT Services',        desc: 'Tech support & maintenance',  prompt: 'Make a receipt for ByteFix IT Services. Client: Westbrook Accounting. Network setup $450, Security audit $300, 3 months managed support $750, Emergency call-out $150. Clean technical design.' },
+    ],
+  },
+  {
+    category: 'Retail',
+    items: [
+      { icon: '🛍️', label: 'Fashion Store',   desc: 'Clothing & accessories',        prompt: 'Generate a stylish receipt for MODO Boutique. Items: Merino Wool Coat $289, Silk Blouse $95, Leather Belt $65, Scarf $48. Member discount 10% applied. Card payment. Fashion-forward design with serif fonts.' },
+      { icon: '💊', label: 'Pharmacy',         desc: 'Medications & health items',    prompt: 'Create a pharmacy receipt for MediCare Pharmacy. Vitamin D3 $18.99, Omega-3 $24.99, Paracetamol $6.50, Prescription co-pay $9.00. Clean clinical design.' },
+      { icon: '🛒', label: 'Grocery',          desc: 'Supermarket shop',              prompt: 'Make a grocery receipt for Fresh & Local Market. Organic Whole Milk $3.80, Free-Range Eggs ×2 $5.90, Sourdough $4.50, Salmon Fillet $12.40, Avocados ×3 $4.20, Spinach $2.80. Loyalty savings $2.40. Clean supermarket style.' },
+      { icon: '📱', label: 'Electronics',      desc: 'Gadgets & accessories',         prompt: 'Create a receipt for TechZone Electronics. Sony WH-1000XM5 $349, USB-C Cable $19.99, Phone Case $24.99, Screen Protector $12.99, Extended Warranty $49. Sleek modern tech design.' },
+    ],
+  },
+  {
+    category: 'Services',
+    items: [
+      { icon: '🏨', label: 'Hotel Stay',       desc: 'Accommodation & extras',        prompt: 'Generate a hotel receipt for The Grand Meridian. Guest: James Wilson. 3 nights Superior King @$245/night, Room Service $87, Mini-bar $34, Valet Parking ×3 $45, Spa $120. Luxury hotel design.' },
+      { icon: '✂️', label: 'Salon & Spa',      desc: 'Beauty & wellness services',    prompt: 'Create a receipt for Lumière Beauty Studio. Balayage & Toner $180, Haircut & Blowout $75, Brow Shaping $35, Gel Manicure $55, Tip 20%, Olaplex No.3 $30. Elegant feminine design.' },
+      { icon: '🚗', label: 'Auto Service',     desc: 'Car repair & maintenance',      prompt: 'Make a receipt for ProDrive Auto Service. Vehicle: 2021 BMW 320i. Full Service & Oil Change $189, Brake Pad Replacement $285, Wheel Alignment $75. Clean automotive design.' },
+      { icon: '🏋️', label: 'Gym & Fitness',   desc: 'Membership & classes',          prompt: 'Create a receipt for PEAK Performance Gym. Member: Emma Rodriguez. Annual Premium Membership $899, Personal Training ×5 $350, Protein Pack $65, Locker rental $48. First-month discount. Bold energetic design.' },
+    ],
+  },
+] as const;
+
 // ── Scaled iframe preview ──────────────────────────────────────────────────────
 // Reads the receipt's natural width after load and applies CSS transform so it
 // always fits the container without horizontal scroll, while keeping the design
@@ -1183,6 +1222,8 @@ function AIStudio({ receiptHtml, setReceiptHtml, messages, setMessages, currentC
   const [attachedFiles, setAttachedFiles]       = useState<Array<{ id: string; file: File; type: 'image' | 'text'; preview?: string; content?: string }>>([]);
   const [isDragOver, setIsDragOver]             = useState(false);
   const [showAttachMenu, setShowAttachMenu]     = useState(false);
+  const [showTemplates, setShowTemplates]       = useState(false);
+  const [activeTemplateCategory, setActiveTemplateCategory] = useState(0);
   const [pendingReceiptGen, setPendingReceiptGen] = useState(false);
   // localStorage is the source of truth — works without server or sign-in
   const [chats, setChats] = useState<ChatEntry[]>(() => readLocalChats());
@@ -1362,8 +1403,8 @@ function AIStudio({ receiptHtml, setReceiptHtml, messages, setMessages, currentC
   }, [isLoading]);
 
   // ── Send message ──
-  const send = async () => {
-    const text = input.trim();
+  const send = async (overrideText?: string) => {
+    const text = (overrideText ?? input).trim();
     if ((!text && attachedFiles.length === 0) || isLoading) return;
 
     setInput('');
@@ -1708,7 +1749,7 @@ function AIStudio({ receiptHtml, setReceiptHtml, messages, setMessages, currentC
               maxWidth: receiptHtml ? '38%' : '100%',
               transition: 'max-width 0.45s cubic-bezier(0.4, 0, 0.2, 1)',
             }}
-            className={`${mobilePanel === 'chat' ? 'flex' : 'hidden'} lg:flex flex-1 flex-col rounded-xl border min-h-0 min-w-0 ${cardBg}`}>
+            className={`${mobilePanel === 'chat' ? 'flex' : 'hidden'} lg:flex flex-1 flex-col rounded-xl border min-h-0 min-w-0 relative ${cardBg}`}>
             {/* Chat header */}
             <div className={`shrink-0 flex items-center gap-2.5 px-4 py-3 border-b ${headerBdr}`}>
               <button onClick={() => window.innerWidth >= 1024 ? setSidebarCollapsed(false) : setSidebarOpen(true)}
@@ -1718,11 +1759,73 @@ function AIStudio({ receiptHtml, setReceiptHtml, messages, setMessages, currentC
               <div className={`w-7 h-7 rounded-md flex items-center justify-center shrink-0 ${dark ? 'bg-[#5E6AD2]/20' : 'bg-[#5E6AD2]/10'}`}>
                 <Sparkles className="w-3.5 h-3.5 text-[#5E6AD2]" />
               </div>
-              <div className="min-w-0">
+              <div className="min-w-0 flex-1">
                 <h2 className={`text-sm font-semibold tracking-[-0.01em] ${dark ? 'text-[#ededef]' : 'text-[#0d0d0e]'}`}>AI Studio</h2>
                 <p className={`text-[10px] ${dark ? 'text-[#5c5c63]' : 'text-[#9b9ba0]'}`}>Powered by GPT</p>
               </div>
+              <button
+                onClick={() => setShowTemplates(true)}
+                className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium transition-colors shrink-0 ${dark ? 'text-[#8b8b8e] hover:bg-white/[0.06] hover:text-[#c7c7c8]' : 'text-[#6b6b6e] hover:bg-black/[0.05] hover:text-[#3d3d3f]'}`}>
+                <LayoutTemplate className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">Templates</span>
+              </button>
             </div>
+
+            {/* Templates modal */}
+            <AnimatePresence>
+              {showTemplates && (
+                <motion.div
+                  initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+                  className="absolute inset-0 z-30 flex items-start justify-center p-4 pt-14"
+                  style={{ background: dark ? 'rgba(0,0,0,0.55)' : 'rgba(0,0,0,0.25)', backdropFilter: 'blur(2px)' }}
+                  onClick={() => setShowTemplates(false)}
+                >
+                  <motion.div
+                    initial={{ opacity: 0, scale: 0.97, y: -6 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.97, y: -6 }}
+                    transition={{ duration: 0.18 }}
+                    onClick={e => e.stopPropagation()}
+                    className={`w-full max-w-md rounded-xl border overflow-hidden ${dark ? 'bg-[#111113] border-white/[0.08]' : 'bg-white border-black/[0.08]'}`}
+                  >
+                    {/* Modal header */}
+                    <div className={`flex items-center justify-between px-4 py-3 border-b ${headerBdr}`}>
+                      <div className="flex items-center gap-2">
+                        <LayoutTemplate className={`w-3.5 h-3.5 ${dark ? 'text-[#5c5c63]' : 'text-[#9b9ba0]'}`} />
+                        <span className={`text-sm font-semibold tracking-[-0.01em] ${dark ? 'text-[#ededef]' : 'text-[#0d0d0e]'}`}>Templates</span>
+                      </div>
+                      <button onClick={() => setShowTemplates(false)} className={`p-1 rounded-md transition-colors ${dark ? 'text-[#5c5c63] hover:bg-white/[0.06] hover:text-[#ededef]' : 'text-[#9b9ba0] hover:bg-black/[0.05] hover:text-[#0d0d0e]'}`}>
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                    {/* Category tabs */}
+                    <div className={`flex gap-1 px-3 pt-3 pb-2 border-b ${headerBdr}`}>
+                      {TEMPLATES.map((cat, i) => (
+                        <button key={cat.category} onClick={() => setActiveTemplateCategory(i)}
+                          className={`px-2.5 py-1 rounded-md text-xs font-medium transition-colors ${activeTemplateCategory === i
+                            ? 'bg-[#5E6AD2] text-white'
+                            : dark ? 'text-[#8b8b8e] hover:bg-white/[0.06] hover:text-[#c7c7c8]' : 'text-[#6b6b6e] hover:bg-black/[0.05] hover:text-[#3d3d3f]'
+                          }`}>
+                          {cat.category}
+                        </button>
+                      ))}
+                    </div>
+                    {/* Template grid */}
+                    <div className="grid grid-cols-2 gap-2 p-3 max-h-72 overflow-y-auto">
+                      {TEMPLATES[activeTemplateCategory].items.map(t => (
+                        <button
+                          key={t.label}
+                          onClick={() => { setShowTemplates(false); send(t.prompt); }}
+                          className={`text-left p-3 rounded-lg border transition-all hover:-translate-y-px active:translate-y-0 ${dark ? 'border-white/[0.07] hover:bg-white/[0.04] text-[#c7c7c8]' : 'border-black/[0.07] hover:bg-[#f4f4f5] text-[#3d3d3f]'}`}
+                        >
+                          <span className="text-xl leading-none">{t.icon}</span>
+                          <p className={`mt-2 text-xs font-semibold leading-tight ${dark ? 'text-[#ededef]' : 'text-[#0d0d0e]'}`}>{t.label}</p>
+                          <p className={`mt-0.5 text-[10px] leading-tight line-clamp-2 ${dark ? 'text-[#5c5c63]' : 'text-[#9b9ba0]'}`}>{t.desc}</p>
+                        </button>
+                      ))}
+                    </div>
+                  </motion.div>
+                </motion.div>
+              )}
+            </AnimatePresence>
 
             {/* Messages */}
             <div
@@ -1861,12 +1964,12 @@ function AIStudio({ receiptHtml, setReceiptHtml, messages, setMessages, currentC
                 </div>
 
                 <input value={input} onChange={e => setInput(e.target.value)}
-                  onKeyDown={e => e.key === 'Enter' && !e.shiftKey && send()}
+                  onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } }}
                   placeholder={receiptHtml ? 'Describe changes...' : 'Describe your receipt...'}
                   disabled={isLoading}
                   className={`flex-1 rounded-xl px-4 py-2.5 text-sm outline-none transition-colors disabled:opacity-40 border ${inputBg}`}
                   autoFocus />
-                <button onClick={send} disabled={(!input.trim() && attachedFiles.length === 0) || isLoading}
+                <button onClick={() => send()} disabled={(!input.trim() && attachedFiles.length === 0) || isLoading}
                   className="p-2.5 bg-[#5E6AD2] text-white rounded-lg hover:bg-[#6B7AE8] transition-colors disabled:opacity-30 disabled:cursor-not-allowed shrink-0">
                   <Send className="w-4 h-4" />
                 </button>
