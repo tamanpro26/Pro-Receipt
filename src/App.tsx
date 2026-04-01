@@ -1520,7 +1520,10 @@ function AIStudio({ receiptHtml, setReceiptHtml, messages, setMessages, currentC
   // ── Download PDF ──
   // Shared: render receipt HTML into an off-screen iframe and capture it as a
   // high-resolution canvas. Used by both downloadPdf and downloadPng.
-  const captureReceiptCanvas = async (): Promise<HTMLCanvasElement> => {
+  // Captures the receipt as a high-resolution PNG data URL using dom-to-image-more,
+  // which delegates to the browser's SVG foreignObject renderer (pixel-perfect CSS:
+  // flexbox, gap, aspect-ratio, letter-spacing, gradients all match the preview).
+  const captureReceiptPng = async (): Promise<{ dataUrl: string; cssW: number; cssH: number }> => {
     const widthMatch = receiptHtml.match(/max-width\s*:\s*(\d+)px/i)
       || receiptHtml.match(/(?<![a-z-])width\s*:\s*(\d+)px/i);
     const receiptWidth = widthMatch ? Math.min(parseInt(widthMatch[1], 10), 1200) : 800;
@@ -1542,8 +1545,7 @@ function AIStudio({ receiptHtml, setReceiptHtml, messages, setMessages, currentC
       });
 
       const iframeDoc = tmp.contentDocument;
-      const iframeWin = tmp.contentWindow;
-      if (!iframeDoc || !iframeWin) throw new Error('Preview not ready');
+      if (!iframeDoc || !tmp.contentWindow) throw new Error('Preview not ready');
 
       // Wait for fonts + all <img> elements to finish loading
       await iframeDoc.fonts?.ready;
@@ -1555,30 +1557,7 @@ function AIStudio({ receiptHtml, setReceiptHtml, messages, setMessages, currentC
             img.addEventListener('error', () => res(), { once: true });
           }))
       );
-      // CSS settle — longer than before to catch transitions/animations
-      await new Promise(r => setTimeout(r, 400));
-
-      // ── aspect-ratio polyfill ─────────────────────────────────────────────
-      // html2canvas does not compute the CSS `aspect-ratio` property, so any
-      // circle/square element sized with it (common in AI-generated receipts)
-      // renders at zero height. We bake the computed height into inline style
-      // before capture so html2canvas sees an explicit px value.
-      try {
-        Array.from(iframeDoc.querySelectorAll<HTMLElement>('*')).forEach(el => {
-          const cs = iframeWin.getComputedStyle(el);
-          const ar = cs.getPropertyValue('aspect-ratio').trim();
-          if (!ar || ar === 'auto') return;
-          // Only set if no explicit height is already inlined
-          if (el.style.height) return;
-          const rect = el.getBoundingClientRect();
-          if (rect.width <= 0) return;
-          // aspect-ratio can be "1", "1 / 1", "16 / 9", etc.
-          const parts = ar.split('/').map(s => parseFloat(s.trim()));
-          const ratio = parts.length === 2 ? parts[1] / parts[0] : 1; // height/width
-          el.style.height = `${rect.width * ratio}px`;
-        });
-      } catch { /* non-critical — keep going */ }
-      // ─────────────────────────────────────────────────────────────────────
+      await new Promise(r => setTimeout(r, 400)); // CSS settle
 
       const body     = iframeDoc.body;
       const de       = iframeDoc.documentElement;
@@ -1588,17 +1567,25 @@ function AIStudio({ receiptHtml, setReceiptHtml, messages, setMessages, currentC
       tmp.style.height = `${naturalH}px`;
       await new Promise(r => setTimeout(r, 80)); // reflow after resize
 
+      // dom-to-image-more uses SVG foreignObject — the browser renders the CSS,
+      // so flexbox alignment, gap, gradients etc. are all pixel-perfect.
+      // Scale trick: expand canvas to N× and transform the cloned node N× up.
       const SCALE = 3;
-      const html2canvas = (await import('html2canvas')).default;
-      const canvas = await html2canvas(body, {
-        scale: SCALE, useCORS: true, allowTaint: true,
-        backgroundColor: '#ffffff', logging: false,
-        width: naturalW, height: naturalH,
-        windowWidth: naturalW, windowHeight: naturalH,
-        scrollX: 0, scrollY: 0,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const domtoimage = ((await import('dom-to-image-more' as any)) as any).default;
+      const dataUrl: string = await domtoimage.toPng(body, {
+        width:  naturalW * SCALE,
+        height: naturalH * SCALE,
+        style: {
+          transform:       `scale(${SCALE})`,
+          transformOrigin: 'top left',
+          width:           naturalW + 'px',
+          height:          naturalH + 'px',
+        },
+        bgcolor: '#ffffff',
       });
 
-      return canvas;
+      return { dataUrl, cssW: naturalW, cssH: naturalH };
     } finally {
       document.body.removeChild(tmp);
     }
@@ -1608,9 +1595,9 @@ function AIStudio({ receiptHtml, setReceiptHtml, messages, setMessages, currentC
     if (!receiptHtml) return;
     setIsDownloadingPng(true);
     try {
-      const canvas = await captureReceiptCanvas();
+      const { dataUrl } = await captureReceiptPng();
       const a = document.createElement('a');
-      a.href = canvas.toDataURL('image/png');
+      a.href = dataUrl;
       a.download = `receipt-${Date.now()}.png`;
       a.click();
       showToast('PNG downloaded!', 'ok');
@@ -1625,18 +1612,16 @@ function AIStudio({ receiptHtml, setReceiptHtml, messages, setMessages, currentC
     if (!receiptHtml) return;
     setIsDownloading(true);
     try {
-      const canvas = await captureReceiptCanvas();
-      const pngDataUrl = canvas.toDataURL('image/png');
+      const { dataUrl, cssW, cssH } = await captureReceiptPng();
       const { jsPDF } = await import('jspdf');
-      const SCALE    = 3;
       const PX_TO_MM = 25.4 / 96;
-      const pageW = (canvas.width  / SCALE) * PX_TO_MM;
-      const pageH = (canvas.height / SCALE) * PX_TO_MM;
+      const pageW = cssW * PX_TO_MM;
+      const pageH = cssH * PX_TO_MM;
       const pdf = new jsPDF({
         orientation: pageH > pageW ? 'portrait' : 'landscape',
         unit: 'mm', format: [pageW, pageH], compress: true,
       });
-      pdf.addImage(pngDataUrl, 'PNG', 0, 0, pageW, pageH, undefined, 'FAST');
+      pdf.addImage(dataUrl, 'PNG', 0, 0, pageW, pageH, undefined, 'FAST');
       pdf.save(`receipt-${Date.now()}.pdf`);
       showToast('PDF downloaded!', 'ok');
     } catch (err: any) {
