@@ -1702,8 +1702,13 @@ function AIStudio({ receiptHtml, setReceiptHtml, messages, setMessages, currentC
 
         <div className="flex-1 flex lg:flex-row min-h-0 gap-0 lg:gap-4 p-2 sm:p-4 overflow-hidden">
 
-          {/* Chat panel */}
-          <div className={`${mobilePanel === 'chat' ? 'flex' : 'hidden'} lg:flex flex-1 flex-col rounded-xl border min-h-0 min-w-0 ${cardBg}`}>
+          {/* Chat panel — shrinks when a receipt is live so the preview gets more room */}
+          <div
+            style={{
+              maxWidth: receiptHtml ? '38%' : '100%',
+              transition: 'max-width 0.45s cubic-bezier(0.4, 0, 0.2, 1)',
+            }}
+            className={`${mobilePanel === 'chat' ? 'flex' : 'hidden'} lg:flex flex-1 flex-col rounded-xl border min-h-0 min-w-0 ${cardBg}`}>
             {/* Chat header */}
             <div className={`shrink-0 flex items-center gap-2.5 px-4 py-3 border-b ${headerBdr}`}>
               <button onClick={() => window.innerWidth >= 1024 ? setSidebarCollapsed(false) : setSidebarOpen(true)}
