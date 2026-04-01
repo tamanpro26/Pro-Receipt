@@ -1174,6 +1174,7 @@ function AIStudio({ receiptHtml, setReceiptHtml, messages, setMessages, currentC
   const [isLoading, setIsLoading]         = useState(false);
   const [loadingStep, setLoadingStep]     = useState(0);
   const [isDownloading, setIsDownloading]   = useState(false);
+  const [isDownloadingPng, setIsDownloadingPng] = useState(false);
   const [sidebarOpen, setSidebarOpen]         = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobilePanel, setMobilePanel]       = useState<'chat' | 'preview'>('chat');
@@ -1449,20 +1450,14 @@ function AIStudio({ receiptHtml, setReceiptHtml, messages, setMessages, currentC
   };
 
   // ── Download PDF ──
-  const downloadPdf = async () => {
-    if (!receiptHtml) return;
-    setIsDownloading(true);
-
-    // Best-effort: parse the receipt's declared width from its CSS so the
-    // iframe matches and there is no extra whitespace around the content.
+  // Shared: render receipt HTML into an off-screen iframe and capture it as a
+  // high-resolution canvas. Used by both downloadPdf and downloadPng.
+  const captureReceiptCanvas = async (): Promise<HTMLCanvasElement> => {
     const widthMatch = receiptHtml.match(/max-width\s*:\s*(\d+)px/i)
       || receiptHtml.match(/(?<![a-z-])width\s*:\s*(\d+)px/i);
     const receiptWidth = widthMatch ? Math.min(parseInt(widthMatch[1], 10), 1200) : 800;
 
     const tmp = document.createElement('iframe');
-    // visibility:hidden keeps the element in the browser's render/paint pipeline
-    // (unlike opacity:0 which can suppress GPU-composited layers like shadows and
-    // gradients). position:fixed at top:0 left:0 gives it a real viewport.
     tmp.style.cssText = [
       'position:fixed', 'top:0', 'left:0',
       `width:${receiptWidth}px`, 'height:1px',
@@ -1472,7 +1467,6 @@ function AIStudio({ receiptHtml, setReceiptHtml, messages, setMessages, currentC
     document.body.appendChild(tmp);
 
     try {
-      // Step 1 — load receipt HTML into the iframe
       await new Promise<void>((resolve, reject) => {
         tmp.addEventListener('load',  () => resolve(), { once: true });
         tmp.addEventListener('error', () => reject(new Error('iframe failed to load')), { once: true });
@@ -1482,21 +1476,18 @@ function AIStudio({ receiptHtml, setReceiptHtml, messages, setMessages, currentC
       const iframeDoc = tmp.contentDocument;
       if (!iframeDoc) throw new Error('Preview not ready');
 
-      // Step 2 — wait for fonts + allow CSS transitions/layouts to settle
       await iframeDoc.fonts?.ready;
       await new Promise(r => setTimeout(r, 150));
 
-      // Step 3 — read natural dimensions, resize iframe for full capture
       const body     = iframeDoc.body;
       const de       = iframeDoc.documentElement;
       const naturalW = body.scrollWidth  || de.scrollWidth  || receiptWidth;
       const naturalH = body.scrollHeight || de.scrollHeight || 600;
       tmp.style.width  = `${naturalW}px`;
       tmp.style.height = `${naturalH}px`;
-      await new Promise(r => setTimeout(r, 50)); // reflow after resize
+      await new Promise(r => setTimeout(r, 50));
 
-      // Step 4 — capture at 3× (288 DPI — print quality) → this is the PNG step
-      const SCALE      = 3;
+      const SCALE = 3;
       const html2canvas = (await import('html2canvas')).default;
       const canvas = await html2canvas(body, {
         scale: SCALE, useCORS: true, allowTaint: true,
@@ -1506,12 +1497,38 @@ function AIStudio({ receiptHtml, setReceiptHtml, messages, setMessages, currentC
         scrollX: 0, scrollY: 0,
       });
 
-      // Step 5 — export as PNG
-      const pngDataUrl = canvas.toDataURL('image/png');
+      return canvas;
+    } finally {
+      document.body.removeChild(tmp);
+    }
+  };
 
-      // Step 6 — build PDF from the PNG; page is sized exactly to the receipt
+  const downloadPng = async () => {
+    if (!receiptHtml) return;
+    setIsDownloadingPng(true);
+    try {
+      const canvas = await captureReceiptCanvas();
+      const a = document.createElement('a');
+      a.href = canvas.toDataURL('image/png');
+      a.download = `receipt-${Date.now()}.png`;
+      a.click();
+      showToast('PNG downloaded!', 'ok');
+    } catch (err: any) {
+      showToast(err.message || 'Failed to download PNG', 'err');
+    } finally {
+      setIsDownloadingPng(false);
+    }
+  };
+
+  const downloadPdf = async () => {
+    if (!receiptHtml) return;
+    setIsDownloading(true);
+    try {
+      const canvas = await captureReceiptCanvas();
+      const pngDataUrl = canvas.toDataURL('image/png');
       const { jsPDF } = await import('jspdf');
-      const PX_TO_MM  = 25.4 / 96;
+      const SCALE    = 3;
+      const PX_TO_MM = 25.4 / 96;
       const pageW = (canvas.width  / SCALE) * PX_TO_MM;
       const pageH = (canvas.height / SCALE) * PX_TO_MM;
       const pdf = new jsPDF({
@@ -1521,11 +1538,9 @@ function AIStudio({ receiptHtml, setReceiptHtml, messages, setMessages, currentC
       pdf.addImage(pngDataUrl, 'PNG', 0, 0, pageW, pageH, undefined, 'FAST');
       pdf.save(`receipt-${Date.now()}.pdf`);
       showToast('PDF downloaded!', 'ok');
-
     } catch (err: any) {
       showToast(err.message || 'Failed to download PDF', 'err');
     } finally {
-      document.body.removeChild(tmp);
       setIsDownloading(false);
     }
   };
@@ -1863,11 +1878,18 @@ function AIStudio({ receiptHtml, setReceiptHtml, messages, setMessages, currentC
               </div>
               <div className="flex items-center gap-2">
                 {receiptHtml && (
-                  <button onClick={downloadPdf} disabled={isDownloading}
-                    className="flex items-center gap-1.5 px-3 py-1.5 bg-[#5E6AD2] text-white rounded-md text-xs font-medium hover:bg-[#6B7AE8] transition-colors disabled:opacity-50">
-                    {isDownloading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
-                    {isDownloading ? 'Generating...' : 'Download PDF'}
-                  </button>
+                  <>
+                    <button onClick={downloadPng} disabled={isDownloadingPng || isDownloading}
+                      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors disabled:opacity-50 ${dark ? btnOutlineDark : btnOutlineLight}`}>
+                      {isDownloadingPng ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <ImageIcon className="w-3.5 h-3.5" />}
+                      {isDownloadingPng ? 'Saving...' : 'PNG'}
+                    </button>
+                    <button onClick={downloadPdf} disabled={isDownloading || isDownloadingPng}
+                      className="flex items-center gap-1.5 px-3 py-1.5 bg-[#5E6AD2] text-white rounded-md text-xs font-medium hover:bg-[#6B7AE8] transition-colors disabled:opacity-50">
+                      {isDownloading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
+                      {isDownloading ? 'Generating...' : 'PDF'}
+                    </button>
+                  </>
                 )}
               </div>
             </div>
