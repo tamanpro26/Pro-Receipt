@@ -243,11 +243,23 @@ RULES FOR HTML OUTPUT (only when generating a receipt):
 - You may use Google Fonts via <link> tags
 - Design must be CREATIVE and UNIQUE — vary layouts, color schemes, typography, and decorative elements
 - The receipt should look like a real, beautifully designed document
-- Make it print-friendly (max-width ~800px, centered)
 - Include all receipt details: business info, items table, totals, tax, payment info, dates
 - Calculate totals, tax, and discounts correctly
 - Fill in missing details with realistic examples when generating
 - Today's date: ${today}
+
+ADAPTIVE SIZING — follow these rules exactly:
+- Set html, body { margin: 0; padding: 0; width: fit-content; min-width: fit-content; }
+- Size the receipt container to match its content type:
+  · POS / thermal slip: max-width 320–380px (narrow, tall)
+  · Café / shop receipt: max-width 480–560px (medium)
+  · Restaurant bill / retail invoice: max-width 620–700px (standard)
+  · Formal business invoice / A4 document: max-width 794px (full A4 width)
+- NEVER exceed 794px width
+- Do NOT use viewport units (vw/vh) on the main container — fixed px widths only
+- Do NOT set a fixed height on the receipt — let it expand naturally with the content
+- The outer wrapper should be: display:block; width:[chosen px]; margin:0 auto;
+- Ensure no horizontal scrollbar appears within the chosen width
 
 DESIGN GUIDELINES — CRITICAL, follow these strictly:
 - NEVER produce a plain white page with a basic table. Every receipt must feel professionally designed.

@@ -13,7 +13,7 @@ import {
   FolderOpen, Palette, CheckCircle2, User, Tag,
   Mail, Loader2, Sparkles, Send, Moon, Sun,
   MessageSquare, PanelLeftClose, PanelLeftOpen, LogIn, SquarePen, X, Pencil, Check,
-  Paperclip, ImageIcon,
+  Paperclip, ImageIcon, Maximize2, Minimize2,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { SignInButton, UserButton } from '@clerk/clerk-react';
@@ -1093,6 +1093,65 @@ const AI_SUGGESTIONS = [
   { icon: '🏢', label: 'Business invoice',    prompt: 'Design a modern corporate invoice for software development consulting services' },
 ];
 
+// ── Scaled iframe preview ──────────────────────────────────────────────────────
+// Reads the receipt's natural width after load and applies CSS transform so it
+// always fits the container without horizontal scroll, while keeping the design
+// pixel-perfect (no re-layout). The wrapper height is adjusted to match so no
+// dead space or clipping occurs.
+const ScaledIframePreview = memo(function ScaledIframePreview({
+  html,
+  title = 'AI Receipt Preview',
+}: {
+  html: string;
+  title?: string;
+}) {
+  const wrapperRef = useRef<HTMLDivElement>(null);
+  const iframeRef  = useRef<HTMLIFrameElement>(null);
+  const [scale,  setScale]  = useState(1);
+  const [docH,   setDocH]   = useState(0);
+
+  const recompute = useCallback(() => {
+    const wrapper = wrapperRef.current;
+    const de = iframeRef.current?.contentDocument?.documentElement;
+    if (!wrapper || !de) return;
+    const naturalW   = de.scrollWidth  || 800;
+    const naturalH   = de.scrollHeight || 600;
+    const s = Math.min(1, wrapper.clientWidth / naturalW);
+    setScale(s);
+    setDocH(naturalH);
+  }, []);
+
+  // Re-run whenever the container is resized (responsive)
+  useEffect(() => {
+    const ro = new ResizeObserver(recompute);
+    if (wrapperRef.current) ro.observe(wrapperRef.current);
+    return () => ro.disconnect();
+  }, [recompute]);
+
+  return (
+    <div ref={wrapperRef} className="w-full overflow-x-hidden overflow-y-auto">
+      {/* Shrink wrapper to scaled height so no dead space below */}
+      <div style={{ height: docH > 0 ? docH * scale : '100%', minHeight: '100%' }}>
+        <iframe
+          ref={iframeRef}
+          srcDoc={html}
+          title={title}
+          sandbox="allow-same-origin"
+          onLoad={recompute}
+          style={{
+            display: 'block',
+            border: 'none',
+            width:  scale < 1 ? `${(1 / scale) * 100}%` : '100%',
+            height: docH > 0 ? `${docH}px` : '100%',
+            transformOrigin: 'top left',
+            transform: scale < 1 ? `scale(${scale})` : 'none',
+          }}
+        />
+      </div>
+    </div>
+  );
+});
+
 
 
 function AIStudio({ receiptHtml, setReceiptHtml, messages, setMessages, currentChatId, setCurrentChatId, dark, showToast }: {
@@ -1119,12 +1178,20 @@ function AIStudio({ receiptHtml, setReceiptHtml, messages, setMessages, currentC
   const [isDragOver, setIsDragOver]             = useState(false);
   const [showAttachMenu, setShowAttachMenu]     = useState(false);
   const [pendingReceiptGen, setPendingReceiptGen] = useState(false);
+  const [isFullscreen, setIsFullscreen]           = useState(false);
   // localStorage is the source of truth — works without server or sign-in
   const [chats, setChats] = useState<ChatEntry[]>(() => readLocalChats());
   const scrollRef      = useRef<HTMLDivElement>(null);
   const renameInputRef = useRef<HTMLInputElement>(null);
   const fileInputRef   = useRef<HTMLInputElement>(null);
   const dragCounter    = useRef(0);
+
+  // Close fullscreen on Escape
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setIsFullscreen(false); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
 
   // ── Process dropped / selected files ──
   const processFiles = useCallback((files: FileList | File[]) => {
@@ -1382,34 +1449,45 @@ function AIStudio({ receiptHtml, setReceiptHtml, messages, setMessages, currentC
   const downloadPdf = async () => {
     if (!receiptHtml) return;
     setIsDownloading(true);
+    // Render into a temporary off-screen iframe so PDF always captures the full
+    // receipt at its natural size, regardless of what is visible on screen.
+    const tmp = document.createElement('iframe');
+    tmp.style.cssText = 'position:fixed;top:0;left:-9999px;width:900px;height:1px;opacity:0;pointer-events:none;border:none;';
+    document.body.appendChild(tmp);
     try {
-      // Render the receipt from the live preview iframe — no server needed
-      const iframe = document.querySelector('iframe[title="AI Receipt Preview"]') as HTMLIFrameElement | null;
-      const root = iframe?.contentDocument?.body ?? iframe?.contentDocument?.documentElement;
-      if (!root) throw new Error('Preview not ready — please wait for the receipt to load');
+      await new Promise<void>((resolve, reject) => {
+        tmp.addEventListener('load', () => resolve(), { once: true });
+        tmp.addEventListener('error', () => reject(new Error('Failed to load receipt')), { once: true });
+        tmp.srcdoc = receiptHtml;
+      });
+
+      const de = tmp.contentDocument?.documentElement;
+      if (!de) throw new Error('Preview not ready');
+      // Let fonts finish loading
+      await tmp.contentDocument?.fonts?.ready;
+      // Expand iframe to full document height before capture
+      const fullH = de.scrollHeight;
+      tmp.style.height = `${fullH}px`;
 
       const html2canvas = (await import('html2canvas')).default;
-      const { jsPDF } = await import('jspdf');
+      const { jsPDF }   = await import('jspdf');
 
-      const el = root as HTMLElement;
-      const canvas = await html2canvas(el, {
+      const canvas = await html2canvas(de, {
         scale: 2,
         useCORS: true,
         backgroundColor: '#ffffff',
         logging: false,
-        // Capture full scrollable content, not just the visible area
-        width:        el.scrollWidth,
-        height:       el.scrollHeight,
-        windowWidth:  el.scrollWidth,
-        windowHeight: el.scrollHeight,
+        width:        de.scrollWidth,
+        height:       de.scrollHeight,
+        windowWidth:  de.scrollWidth,
+        windowHeight: de.scrollHeight,
         scrollX: 0,
         scrollY: 0,
       });
 
       const imgData = canvas.toDataURL('image/png');
-      // Page size matches the receipt exactly — no cropping, no multi-page
-      const pxToMm  = 25.4 / 96; // 96 dpi → mm
-      const pageW   = (canvas.width  / 2) * pxToMm; // divide by scale (2)
+      const pxToMm  = 25.4 / 96;
+      const pageW   = (canvas.width  / 2) * pxToMm;
       const pageH   = (canvas.height / 2) * pxToMm;
       const pdf     = new jsPDF({ orientation: 'portrait', unit: 'mm', format: [pageW, pageH] });
       pdf.addImage(imgData, 'PNG', 0, 0, pageW, pageH);
@@ -1418,6 +1496,7 @@ function AIStudio({ receiptHtml, setReceiptHtml, messages, setMessages, currentC
     } catch (err: any) {
       showToast(err.message || 'Failed to download PDF', 'err');
     } finally {
+      document.body.removeChild(tmp);
       setIsDownloading(false);
     }
   };
@@ -1769,13 +1848,22 @@ function AIStudio({ receiptHtml, setReceiptHtml, messages, setMessages, currentC
                 <Eye className="w-4 h-4 text-gray-400" />
                 <h2 className={`text-sm font-semibold ${dark ? 'text-gray-100' : 'text-gray-800'}`}>Preview</h2>
               </div>
-              {receiptHtml && (
-                <button onClick={downloadPdf} disabled={isDownloading}
-                  className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 text-white rounded-lg text-xs font-medium hover:bg-indigo-500 transition-colors disabled:opacity-50">
-                  {isDownloading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
-                  {isDownloading ? 'Generating...' : 'Download PDF'}
-                </button>
-              )}
+              <div className="flex items-center gap-2">
+                {receiptHtml && (
+                  <button onClick={() => setIsFullscreen(true)}
+                    title="Full-screen preview"
+                    className={`p-1.5 rounded-lg transition-colors ${dark ? 'hover:bg-white/10 text-gray-400 hover:text-gray-200' : 'hover:bg-gray-100 text-gray-400 hover:text-gray-700'}`}>
+                    <Maximize2 className="w-4 h-4" />
+                  </button>
+                )}
+                {receiptHtml && (
+                  <button onClick={downloadPdf} disabled={isDownloading}
+                    className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 text-white rounded-lg text-xs font-medium hover:bg-indigo-500 transition-colors disabled:opacity-50">
+                    {isDownloading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
+                    {isDownloading ? 'Generating...' : 'Download PDF'}
+                  </button>
+                )}
+              </div>
             </div>
             <div className="flex-1 min-h-0 overflow-hidden">
               {isLoading && pendingReceiptGen ? (
@@ -1889,7 +1977,7 @@ function AIStudio({ receiptHtml, setReceiptHtml, messages, setMessages, currentC
                 </div>
 
               ) : receiptHtml ? (
-                <iframe srcDoc={receiptHtml} title="AI Receipt Preview" className="w-full h-full border-0" sandbox="allow-same-origin" />
+                <ScaledIframePreview html={receiptHtml} />
               ) : (
                 <div className="flex flex-col items-center justify-center h-full gap-5 p-8">
                   <motion.div
@@ -1925,6 +2013,54 @@ function AIStudio({ receiptHtml, setReceiptHtml, messages, setMessages, currentC
 
         </div>
       </div>
+
+      {/* ── Full-screen preview overlay ── */}
+      <AnimatePresence>
+        {isFullscreen && receiptHtml && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.2 }}
+            className="fixed inset-0 z-50 flex items-center justify-center p-4"
+            style={{ backgroundColor: 'rgba(0,0,0,0.82)', backdropFilter: 'blur(10px)' }}
+            onClick={e => { if (e.target === e.currentTarget) setIsFullscreen(false); }}
+          >
+            <motion.div
+              initial={{ scale: 0.92, opacity: 0, y: 16 }}
+              animate={{ scale: 1,    opacity: 1, y: 0  }}
+              exit={{    scale: 0.92, opacity: 0, y: 16 }}
+              transition={{ type: 'spring', damping: 28, stiffness: 320 }}
+              className={`relative flex flex-col w-full max-w-4xl rounded-2xl overflow-hidden shadow-2xl ${dark ? 'bg-[#1a1a1a] border border-white/10' : 'bg-white border border-gray-200'}`}
+              style={{ maxHeight: '92vh' }}
+            >
+              {/* Header */}
+              <div className={`shrink-0 flex items-center justify-between px-5 py-3.5 border-b ${dark ? 'border-white/10' : 'border-gray-100'}`}>
+                <div className="flex items-center gap-2">
+                  <Eye className="w-4 h-4 text-gray-400" />
+                  <span className={`text-sm font-semibold ${dark ? 'text-gray-100' : 'text-gray-800'}`}>Full Preview</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button onClick={downloadPdf} disabled={isDownloading}
+                    className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 text-white rounded-lg text-xs font-medium hover:bg-indigo-500 transition-colors disabled:opacity-50">
+                    {isDownloading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
+                    {isDownloading ? 'Generating...' : 'Download PDF'}
+                  </button>
+                  <button onClick={() => setIsFullscreen(false)}
+                    className={`p-1.5 rounded-lg transition-colors ${dark ? 'hover:bg-white/10 text-gray-400 hover:text-gray-200' : 'hover:bg-gray-100 text-gray-500 hover:text-gray-700'}`}>
+                    <Minimize2 className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+
+              {/* Receipt — scrollable, scaled to fit */}
+              <div className={`flex-1 overflow-hidden ${dark ? 'bg-[#111]' : 'bg-gray-50'}`}>
+                <ScaledIframePreview html={receiptHtml} title="AI Receipt Preview Fullscreen" />
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
