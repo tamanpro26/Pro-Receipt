@@ -31,7 +31,7 @@ app.use(cors({
     : false,   // same-origin in prod → no CORS header needed
 }));
 
-app.use(express.json({ limit: '5mb' }));
+app.use(express.json({ limit: '25mb' }));
 
 // ─── Clerk auth (optional) ──────────────────────────────────────────────────
 
@@ -248,18 +248,17 @@ RULES FOR HTML OUTPUT (only when generating a receipt):
 - Fill in missing details with realistic examples when generating
 - Today's date: ${today}
 
-ADAPTIVE SIZING — follow these rules exactly:
-- Set html, body { margin: 0; padding: 0; width: fit-content; min-width: fit-content; }
-- Size the receipt container to match its content type:
-  · POS / thermal slip: max-width 320–380px (narrow, tall)
-  · Café / shop receipt: max-width 480–560px (medium)
-  · Restaurant bill / retail invoice: max-width 620–700px (standard)
-  · Formal business invoice / A4 document: max-width 794px (full A4 width)
-- NEVER exceed 794px width
-- Do NOT use viewport units (vw/vh) on the main container — fixed px widths only
-- Do NOT set a fixed height on the receipt — let it expand naturally with the content
-- The outer wrapper should be: display:block; width:[chosen px]; margin:0 auto;
-- Ensure no horizontal scrollbar appears within the chosen width
+ADAPTIVE SIZING — you have FULL FREEDOM over the receipt dimensions:
+- Set html, body { margin: 0; padding: 0; }
+- You decide the width AND height of the receipt based on what looks best for the content.
+- Width: choose any width from 280px (tiny POS slip) up to 794px (full A4 width at 96dpi). Pick whatever width makes the design look best — there is no default.
+- Height: let the content determine the height naturally. For a full-page A4 invoice, you may set min-height: 1123px on the container. For a small receipt, let it be short.
+- If the user requests a specific paper size (A4, Letter, etc.), use these dimensions exactly:
+  · A4:     width 794px, min-height 1123px
+  · Letter: width 816px, min-height 1056px
+  · A5:     width 559px, min-height 794px
+- Use a fixed px width on the receipt container (not vw/vh). Center it with margin: 0 auto.
+- The receipt's aspect ratio, proportions, and overall feel are YOUR creative choice — make it look professional and intentional at whatever size you pick.
 
 DESIGN GUIDELINES — CRITICAL, follow these strictly:
 - NEVER produce a plain white page with a basic table. Every receipt must feel professionally designed.
@@ -787,6 +786,17 @@ if (!isDev) {
   // SPA fallback — let React Router handle unknown paths
   app.get('*', (_req, res) => res.sendFile(path.join(DIST, 'index.html')));
 }
+
+// ─── API error handler — always return JSON, never HTML ─────────────────────
+// Must come after all routes but before the listener.
+app.use((err: any, _req: any, res: any, _next: any) => {
+  const status = err.status || err.statusCode || 500;
+  const msg    = err.type === 'entity.too.large'
+    ? 'Payload too large — try a smaller image or fewer files.'
+    : (err.message || 'Internal server error');
+  console.error(`[express error] ${status} — ${msg}`);
+  res.status(status).json({ error: msg });
+});
 
 // ─── Start ────────────────────────────────────────────────────────────────────
 

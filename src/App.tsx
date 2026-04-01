@@ -2046,7 +2046,7 @@ function AIStudio({ receiptHtml, setReceiptHtml, messages, setMessages, currentC
               </div>
 
               {/* Receipt — scrollable, scaled to fit */}
-              <div className={`flex-1 overflow-hidden ${dark ? 'bg-[#111]' : 'bg-gray-50'}`}>
+              <div className={`flex-1 min-h-0 ${dark ? 'bg-[#111]' : 'bg-gray-50'}`}>
                 <ScaledIframePreview html={receiptHtml} title="AI Receipt Preview Fullscreen" />
               </div>
             </motion.div>
