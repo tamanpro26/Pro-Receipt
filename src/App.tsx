@@ -1542,10 +1542,43 @@ function AIStudio({ receiptHtml, setReceiptHtml, messages, setMessages, currentC
       });
 
       const iframeDoc = tmp.contentDocument;
-      if (!iframeDoc) throw new Error('Preview not ready');
+      const iframeWin = tmp.contentWindow;
+      if (!iframeDoc || !iframeWin) throw new Error('Preview not ready');
 
+      // Wait for fonts + all <img> elements to finish loading
       await iframeDoc.fonts?.ready;
-      await new Promise(r => setTimeout(r, 150));
+      await Promise.all(
+        Array.from(iframeDoc.querySelectorAll<HTMLImageElement>('img'))
+          .filter(img => !img.complete)
+          .map(img => new Promise<void>(res => {
+            img.addEventListener('load',  () => res(), { once: true });
+            img.addEventListener('error', () => res(), { once: true });
+          }))
+      );
+      // CSS settle — longer than before to catch transitions/animations
+      await new Promise(r => setTimeout(r, 400));
+
+      // ── aspect-ratio polyfill ─────────────────────────────────────────────
+      // html2canvas does not compute the CSS `aspect-ratio` property, so any
+      // circle/square element sized with it (common in AI-generated receipts)
+      // renders at zero height. We bake the computed height into inline style
+      // before capture so html2canvas sees an explicit px value.
+      try {
+        Array.from(iframeDoc.querySelectorAll<HTMLElement>('*')).forEach(el => {
+          const cs = iframeWin.getComputedStyle(el);
+          const ar = cs.getPropertyValue('aspect-ratio').trim();
+          if (!ar || ar === 'auto') return;
+          // Only set if no explicit height is already inlined
+          if (el.style.height) return;
+          const rect = el.getBoundingClientRect();
+          if (rect.width <= 0) return;
+          // aspect-ratio can be "1", "1 / 1", "16 / 9", etc.
+          const parts = ar.split('/').map(s => parseFloat(s.trim()));
+          const ratio = parts.length === 2 ? parts[1] / parts[0] : 1; // height/width
+          el.style.height = `${rect.width * ratio}px`;
+        });
+      } catch { /* non-critical — keep going */ }
+      // ─────────────────────────────────────────────────────────────────────
 
       const body     = iframeDoc.body;
       const de       = iframeDoc.documentElement;
@@ -1553,7 +1586,7 @@ function AIStudio({ receiptHtml, setReceiptHtml, messages, setMessages, currentC
       const naturalH = body.scrollHeight || de.scrollHeight || 600;
       tmp.style.width  = `${naturalW}px`;
       tmp.style.height = `${naturalH}px`;
-      await new Promise(r => setTimeout(r, 50));
+      await new Promise(r => setTimeout(r, 80)); // reflow after resize
 
       const SCALE = 3;
       const html2canvas = (await import('html2canvas')).default;
