@@ -13,7 +13,7 @@ import {
   FolderOpen, Palette, CheckCircle2, User, Tag,
   Mail, Loader2, Sparkles, Send, Moon, Sun,
   MessageSquare, PanelLeftClose, PanelLeftOpen, LogIn, SquarePen, X, Pencil, Check,
-  Paperclip, ImageIcon, Maximize2, Minimize2,
+  Paperclip, ImageIcon,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { SignInButton, UserButton } from '@clerk/clerk-react';
@@ -1182,20 +1182,13 @@ function AIStudio({ receiptHtml, setReceiptHtml, messages, setMessages, currentC
   const [isDragOver, setIsDragOver]             = useState(false);
   const [showAttachMenu, setShowAttachMenu]     = useState(false);
   const [pendingReceiptGen, setPendingReceiptGen] = useState(false);
-  const [isFullscreen, setIsFullscreen]           = useState(false);
   // localStorage is the source of truth — works without server or sign-in
   const [chats, setChats] = useState<ChatEntry[]>(() => readLocalChats());
-  const scrollRef      = useRef<HTMLDivElement>(null);
-  const renameInputRef = useRef<HTMLInputElement>(null);
-  const fileInputRef   = useRef<HTMLInputElement>(null);
-  const dragCounter    = useRef(0);
-
-  // Close fullscreen on Escape
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setIsFullscreen(false); };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, []);
+  const scrollRef       = useRef<HTMLDivElement>(null);
+  const prevMsgCountRef = useRef(0);
+  const renameInputRef  = useRef<HTMLInputElement>(null);
+  const fileInputRef    = useRef<HTMLInputElement>(null);
+  const dragCounter     = useRef(0);
 
   // ── Process dropped / selected files ──
   const processFiles = useCallback((files: FileList | File[]) => {
@@ -1351,8 +1344,13 @@ function AIStudio({ receiptHtml, setReceiptHtml, messages, setMessages, currentC
     })();
   }, [auth.isSignedIn]);
 
-  // ── Auto-scroll ──
-  useEffect(() => { scrollRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages, isLoading]);
+  // ── Auto-scroll — only fires when a new message is added, not on isLoading toggles ──
+  useEffect(() => {
+    if (messages.length > prevMsgCountRef.current) {
+      prevMsgCountRef.current = messages.length;
+      scrollRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [messages]);
 
   // ── Loading step animation ──
   useEffect(() => {
@@ -1453,54 +1451,76 @@ function AIStudio({ receiptHtml, setReceiptHtml, messages, setMessages, currentC
   const downloadPdf = async () => {
     if (!receiptHtml) return;
     setIsDownloading(true);
-    // Render into a temporary off-screen iframe so PDF always captures the full
-    // receipt at its natural size, regardless of what is visible on screen.
+
+    // Best-effort: parse the receipt's declared width from its CSS so the
+    // iframe matches and there is no extra whitespace around the content.
+    const widthMatch = receiptHtml.match(/max-width\s*:\s*(\d+)px/i)
+      || receiptHtml.match(/(?<![a-z-])width\s*:\s*(\d+)px/i);
+    const receiptWidth = widthMatch ? Math.min(parseInt(widthMatch[1], 10), 1200) : 800;
+
     const tmp = document.createElement('iframe');
-    tmp.style.cssText = 'position:fixed;top:0;left:-9999px;width:900px;height:1px;opacity:0;pointer-events:none;border:none;';
+    // visibility:hidden keeps the element in the browser's render/paint pipeline
+    // (unlike opacity:0 which can suppress GPU-composited layers like shadows and
+    // gradients). position:fixed at top:0 left:0 gives it a real viewport.
+    tmp.style.cssText = [
+      'position:fixed', 'top:0', 'left:0',
+      `width:${receiptWidth}px`, 'height:1px',
+      'visibility:hidden', 'pointer-events:none',
+      'border:none', 'z-index:-1',
+    ].join(';');
     document.body.appendChild(tmp);
+
     try {
+      // Step 1 — load receipt HTML into the iframe
       await new Promise<void>((resolve, reject) => {
-        tmp.addEventListener('load', () => resolve(), { once: true });
-        tmp.addEventListener('error', () => reject(new Error('Failed to load receipt')), { once: true });
+        tmp.addEventListener('load',  () => resolve(), { once: true });
+        tmp.addEventListener('error', () => reject(new Error('iframe failed to load')), { once: true });
         tmp.srcdoc = receiptHtml;
       });
 
-      const de = tmp.contentDocument?.documentElement;
-      if (!de) throw new Error('Preview not ready');
-      // Let fonts finish loading
-      await tmp.contentDocument?.fonts?.ready;
-      // Resize iframe to the receipt's natural dimensions so html2canvas
-      // captures only the content — no extra whitespace around it.
-      const body = tmp.contentDocument!.body;
-      const naturalW = body.scrollWidth || de.scrollWidth;
-      const naturalH = body.scrollHeight || de.scrollHeight;
+      const iframeDoc = tmp.contentDocument;
+      if (!iframeDoc) throw new Error('Preview not ready');
+
+      // Step 2 — wait for fonts + allow CSS transitions/layouts to settle
+      await iframeDoc.fonts?.ready;
+      await new Promise(r => setTimeout(r, 150));
+
+      // Step 3 — read natural dimensions, resize iframe for full capture
+      const body     = iframeDoc.body;
+      const de       = iframeDoc.documentElement;
+      const naturalW = body.scrollWidth  || de.scrollWidth  || receiptWidth;
+      const naturalH = body.scrollHeight || de.scrollHeight || 600;
       tmp.style.width  = `${naturalW}px`;
       tmp.style.height = `${naturalH}px`;
+      await new Promise(r => setTimeout(r, 50)); // reflow after resize
 
+      // Step 4 — capture at 3× (288 DPI — print quality) → this is the PNG step
+      const SCALE      = 3;
       const html2canvas = (await import('html2canvas')).default;
-      const { jsPDF }   = await import('jspdf');
-
       const canvas = await html2canvas(body, {
-        scale: 2,
-        useCORS: true,
-        backgroundColor: '#ffffff',
-        logging: false,
-        width:        naturalW,
-        height:       naturalH,
-        windowWidth:  naturalW,
-        windowHeight: naturalH,
-        scrollX: 0,
-        scrollY: 0,
+        scale: SCALE, useCORS: true, allowTaint: true,
+        backgroundColor: '#ffffff', logging: false,
+        width: naturalW, height: naturalH,
+        windowWidth: naturalW, windowHeight: naturalH,
+        scrollX: 0, scrollY: 0,
       });
 
-      const imgData = canvas.toDataURL('image/png');
-      const pxToMm  = 25.4 / 96;
-      const pageW   = (canvas.width  / 2) * pxToMm;
-      const pageH   = (canvas.height / 2) * pxToMm;
-      const pdf     = new jsPDF({ orientation: 'portrait', unit: 'mm', format: [pageW, pageH] });
-      pdf.addImage(imgData, 'PNG', 0, 0, pageW, pageH);
-      pdf.save(`receipt-ai-${Date.now()}.pdf`);
+      // Step 5 — export as PNG
+      const pngDataUrl = canvas.toDataURL('image/png');
+
+      // Step 6 — build PDF from the PNG; page is sized exactly to the receipt
+      const { jsPDF } = await import('jspdf');
+      const PX_TO_MM  = 25.4 / 96;
+      const pageW = (canvas.width  / SCALE) * PX_TO_MM;
+      const pageH = (canvas.height / SCALE) * PX_TO_MM;
+      const pdf = new jsPDF({
+        orientation: pageH > pageW ? 'portrait' : 'landscape',
+        unit: 'mm', format: [pageW, pageH], compress: true,
+      });
+      pdf.addImage(pngDataUrl, 'PNG', 0, 0, pageW, pageH, undefined, 'FAST');
+      pdf.save(`receipt-${Date.now()}.pdf`);
       showToast('PDF downloaded!', 'ok');
+
     } catch (err: any) {
       showToast(err.message || 'Failed to download PDF', 'err');
     } finally {
@@ -1706,7 +1726,9 @@ function AIStudio({ receiptHtml, setReceiptHtml, messages, setMessages, currentC
 
               <div className="space-y-3">
                 {messages.map((msg, i) => (
-                  <motion.div key={i} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }}
+                  <motion.div key={i}
+                    initial={i === messages.length - 1 ? { opacity: 0, y: 6 } : false}
+                    animate={{ opacity: 1, y: 0 }}
                     className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
                     <div className={`max-w-[85%] rounded-2xl px-4 py-2.5 text-sm leading-relaxed whitespace-pre-wrap ${
                       msg.role === 'user'
@@ -1841,13 +1863,6 @@ function AIStudio({ receiptHtml, setReceiptHtml, messages, setMessages, currentC
                 <h2 className={`text-sm font-semibold ${dark ? 'text-gray-100' : 'text-gray-800'}`}>Preview</h2>
               </div>
               <div className="flex items-center gap-2">
-                {receiptHtml && (
-                  <button onClick={() => setIsFullscreen(true)}
-                    title="Full-screen preview"
-                    className={`p-1.5 rounded-lg transition-colors ${dark ? 'hover:bg-white/10 text-gray-400 hover:text-gray-200' : 'hover:bg-gray-100 text-gray-400 hover:text-gray-700'}`}>
-                    <Maximize2 className="w-4 h-4" />
-                  </button>
-                )}
                 {receiptHtml && (
                   <button onClick={downloadPdf} disabled={isDownloading}
                     className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 text-white rounded-lg text-xs font-medium hover:bg-indigo-500 transition-colors disabled:opacity-50">
@@ -2006,53 +2021,6 @@ function AIStudio({ receiptHtml, setReceiptHtml, messages, setMessages, currentC
         </div>
       </div>
 
-      {/* ── Full-screen preview overlay ── */}
-      <AnimatePresence>
-        {isFullscreen && receiptHtml && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.2 }}
-            className="fixed inset-0 z-50 flex items-center justify-center p-4"
-            style={{ backgroundColor: 'rgba(0,0,0,0.82)', backdropFilter: 'blur(10px)' }}
-            onClick={e => { if (e.target === e.currentTarget) setIsFullscreen(false); }}
-          >
-            <motion.div
-              initial={{ scale: 0.92, opacity: 0, y: 16 }}
-              animate={{ scale: 1,    opacity: 1, y: 0  }}
-              exit={{    scale: 0.92, opacity: 0, y: 16 }}
-              transition={{ type: 'spring', damping: 28, stiffness: 320 }}
-              className={`relative flex flex-col w-full max-w-4xl rounded-2xl overflow-hidden shadow-2xl ${dark ? 'bg-[#1a1a1a] border border-white/10' : 'bg-white border border-gray-200'}`}
-              style={{ maxHeight: '92vh' }}
-            >
-              {/* Header */}
-              <div className={`shrink-0 flex items-center justify-between px-5 py-3.5 border-b ${dark ? 'border-white/10' : 'border-gray-100'}`}>
-                <div className="flex items-center gap-2">
-                  <Eye className="w-4 h-4 text-gray-400" />
-                  <span className={`text-sm font-semibold ${dark ? 'text-gray-100' : 'text-gray-800'}`}>Full Preview</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <button onClick={downloadPdf} disabled={isDownloading}
-                    className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 text-white rounded-lg text-xs font-medium hover:bg-indigo-500 transition-colors disabled:opacity-50">
-                    {isDownloading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
-                    {isDownloading ? 'Generating...' : 'Download PDF'}
-                  </button>
-                  <button onClick={() => setIsFullscreen(false)}
-                    className={`p-1.5 rounded-lg transition-colors ${dark ? 'hover:bg-white/10 text-gray-400 hover:text-gray-200' : 'hover:bg-gray-100 text-gray-500 hover:text-gray-700'}`}>
-                    <Minimize2 className="w-4 h-4" />
-                  </button>
-                </div>
-              </div>
-
-              {/* Receipt — scrollable, scaled to fit */}
-              <div className={`flex-1 min-h-0 ${dark ? 'bg-[#111]' : 'bg-gray-50'}`}>
-                <ScaledIframePreview html={receiptHtml} title="AI Receipt Preview Fullscreen" />
-              </div>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
     </div>
   );
 }
